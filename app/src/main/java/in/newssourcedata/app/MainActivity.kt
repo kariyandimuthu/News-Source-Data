@@ -191,5 +191,3 @@ fun NewsSourceScreen(dao: NewsDao) {
         }
     }
 }
-EOFfind app -type f | sort
-EOFfind app -type f | sort
