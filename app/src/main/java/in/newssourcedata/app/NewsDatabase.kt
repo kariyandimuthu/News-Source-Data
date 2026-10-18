@@ -1,4 +1,4 @@
-package in.newssourcedata.app
+package `in`.newssourcedata.app
 
 import android.content.Context
 import androidx.room.Database

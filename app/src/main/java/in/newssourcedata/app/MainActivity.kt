@@ -1,4 +1,4 @@
-package in.newssourcedata.app
+package `in`.newssourcedata.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
