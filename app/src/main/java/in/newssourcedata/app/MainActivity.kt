@@ -11,8 +11,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.jan.supabase.createSupabaseClient
-import io.github.jan.supabase.gotrue.GoTrue
-import io.github.jan.supabase.gotrue.gotrue
+import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.gotrue.auth
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
@@ -27,7 +27,7 @@ private val supabase = createSupabaseClient(
     supabaseUrl = SUPABASE_URL,
     supabaseKey = SUPABASE_KEY
 ) {
-    install(GoTrue)
+    install(Auth)
     install(Postgrest)
 }
 
