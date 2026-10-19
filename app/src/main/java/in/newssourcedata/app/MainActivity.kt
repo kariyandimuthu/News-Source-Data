@@ -6,10 +6,14 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
@@ -20,53 +24,37 @@ import kotlinx.serialization.Serializable
 private const val SUPABASE_URL = "https://cmvvcwcavopmpwkowhnz.supabase.co"
 private const val SUPABASE_KEY = "sb_publishable_iY6fpaaFMuRpBpShDVSCtA_OeRglNDw"
 
-private val supabase = createSupabaseClient(
-    supabaseUrl = SUPABASE_URL,
-    supabaseKey = SUPABASE_KEY
-) {
+private val supabase = createSupabaseClient(supabaseUrl = SUPABASE_URL, supabaseKey = SUPABASE_KEY) {
     install(Postgrest)
 }
 
 @Serializable
 private data class CloudNewsInsert(
-    val headline: String,
-    val body: String,
+    val headline: String, val body: String,
     @SerialName("location_text") val locationText: String? = null
 )
-
 @Serializable
 private data class CloudAssignmentInsert(
-    val title: String,
-    val description: String,
+    val title: String, val description: String,
     @SerialName("due_at") val dueAt: String? = null
 )
-
 @Serializable
 private data class CloudContactInsert(
-    @SerialName("full_name") val fullName: String,
-    val phone: String,
-    val notes: String
+    @SerialName("full_name") val fullName: String, val phone: String, val notes: String
 )
-
 @Serializable
 private data class CloudNews(
-    val headline: String,
-    val body: String? = null,
+    val headline: String, val body: String? = null,
     @SerialName("location_text") val locationText: String? = null
 )
-
 @Serializable
 private data class CloudAssignment(
-    val title: String,
-    val description: String? = null,
+    val title: String, val description: String? = null,
     @SerialName("due_at") val dueAt: String? = null
 )
-
 @Serializable
 private data class CloudContact(
-    @SerialName("full_name") val fullName: String,
-    val phone: String? = null,
-    val notes: String? = null
+    @SerialName("full_name") val fullName: String, val phone: String? = null, val notes: String? = null
 )
 
 private enum class Page { LIST, FORM }
@@ -75,7 +63,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val dao = NewsDatabase.getInstance(applicationContext).newsDao()
-        setContent { MaterialTheme { NewsSourceScreen(dao) } }
+        setContent {
+            val colors = lightColorScheme(
+                primary = androidx.compose.ui.graphics.Color(0xFF5B4695),
+                onPrimary = androidx.compose.ui.graphics.Color.White,
+                background = androidx.compose.ui.graphics.Color(0xFFF8F7FB),
+                surface = androidx.compose.ui.graphics.Color.White,
+                surfaceVariant = androidx.compose.ui.graphics.Color(0xFFF0EDF6)
+            )
+            MaterialTheme(colorScheme = colors) { NewsSourceScreen(dao) }
+        }
     }
 }
 
@@ -94,167 +91,165 @@ fun NewsSourceScreen(dao: NewsDao) {
     val scope = rememberCoroutineScope()
 
     suspend fun refreshLocal() {
-        val all = when (tab) {
-            0 -> dao.getNews().map { "${it.title} — ${it.district}\n${it.details}" }
-            1 -> dao.getAssignments().map { "${it.title}\n${it.details} ${it.dueDate}" }
-            else -> dao.getContacts().map { "${it.name} — ${it.phone}\n${it.notes}" }
+        entries = when (tab) {
+            0 -> dao.getNews().map { listOf(it.title, it.district, it.details).filter(String::isNotBlank).joinToString("\n") }
+            1 -> dao.getAssignments().map { listOf(it.title, it.dueDate, it.details).filter(String::isNotBlank).joinToString("\n") }
+            else -> dao.getContacts().map { listOf(it.name, it.phone, it.notes).filter(String::isNotBlank).joinToString("\n") }
         }
-        entries = all
     }
-
     suspend fun refreshCloud() {
         entries = when (tab) {
             0 -> supabase.from("news_items").select().decodeList<CloudNews>()
-                .map { "${it.headline} — ${it.locationText.orEmpty()}\n${it.body.orEmpty()}" }
+                .map { listOf(it.headline, it.locationText, it.body).filterNotNull().filter(String::isNotBlank).joinToString("\n") }
             1 -> supabase.from("assignments").select().decodeList<CloudAssignment>()
-                .map { "${it.title}\n${it.description.orEmpty()} ${it.dueAt.orEmpty()}" }
+                .map { listOf(it.title, it.dueAt, it.description).filterNotNull().filter(String::isNotBlank).joinToString("\n") }
             else -> supabase.from("contacts").select().decodeList<CloudContact>()
-                .map { "${it.fullName} — ${it.phone.orEmpty()}\n${it.notes.orEmpty()}" }
+                .map { listOf(it.fullName, it.phone, it.notes).filterNotNull().filter(String::isNotBlank).joinToString("\n") }
         }
     }
-
     LaunchedEffect(tab) {
-        search = ""
-        title = ""
-        details = ""
-        extra = ""
-        page = Page.LIST
+        search = ""; title = ""; details = ""; extra = ""; page = Page.LIST
         refreshLocal()
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("News Source Data") },
+                title = {
+                    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                        Text("News Source Data", fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                        Text("செய்தியாளர் உதவியாளர்", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
                 navigationIcon = {
-                    if (page == Page.FORM) {
-                        TextButton(onClick = { page = Page.LIST }) { Text("← திரும்ப") }
+                    if (page == Page.FORM) TextButton(onClick = { page = Page.LIST }) {
+                        Text("←", fontSize = 20.sp)
                     }
                 }
             )
         },
         bottomBar = {
             NavigationBar {
-                NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("📰") }, label = { Text("செய்திகள்") })
-                NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("📋") }, label = { Text("அசைன்மென்ட்") })
-                NavigationBarItem(selected = tab == 2, onClick = { tab = 2 }, icon = { Text("☎") }, label = { Text("தொடர்புகள்") })
+                NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("📰", fontSize = 18.sp) }, label = { Text("செய்திகள்", fontSize = 11.sp) })
+                NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("📋", fontSize = 18.sp) }, label = { Text("அசைன்மென்ட்", fontSize = 10.sp) })
+                NavigationBarItem(selected = tab == 2, onClick = { tab = 2 }, icon = { Text("☎", fontSize = 18.sp) }, label = { Text("தொடர்புகள்", fontSize = 11.sp) })
             }
         }
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (page == Page.LIST) {
-                Text(
-                    when (tab) { 0 -> "செய்திகள்"; 1 -> "அசைன்மென்ட்"; else -> "தொடர்புகள்" },
-                    style = MaterialTheme.typography.headlineSmall
-                )
+                Text(when (tab) { 0 -> "செய்திகள்"; 1 -> "அசைன்மென்ட்"; else -> "தொடர்புகள்" },
+                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 23.sp, fontWeight = FontWeight.Bold))
                 OutlinedTextField(
                     value = search, onValueChange = { search = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("தேடுக") },
-                    singleLine = true
+                    label = { Text("தலைப்பு / விவரம் தேடுக", fontSize = 13.sp) },
+                    singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                    shape = RoundedCornerShape(12.dp)
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button(onClick = {
                         title = ""; details = ""; extra = ""; message = ""
                         page = Page.FORM
-                    }, modifier = Modifier.weight(1f)) {
-                        Text(when (tab) { 0 -> "+ புதிய செய்தி"; 1 -> "+ புதிய அசைன்மென்ட்"; else -> "+ புதிய தொடர்பு" })
+                    }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 11.dp)) {
+                        Text(when (tab) { 0 -> "+ புதிய செய்தி"; 1 -> "+ புதிய அசைன்மென்ட்"; else -> "+ புதிய தொடர்பு" }, fontSize = 13.sp)
                     }
                     OutlinedButton(enabled = !busy, onClick = {
                         scope.launch {
                             busy = true
-                            try {
-                                refreshCloud()
-                                message = "Cloud தரவு ஏற்றப்பட்டது"
-                            } catch (e: Exception) {
-                                refreshLocal()
-                                message = "Cloud ஏற்ற முடியவில்லை; சாதனத் தரவு காட்டப்படுகிறது: ${e.message.orEmpty().take(100)}"
-                            } finally { busy = false }
+                            try { refreshCloud(); message = "Cloud தரவு ஏற்றப்பட்டது" }
+                            catch (e: Exception) { refreshLocal(); message = "Cloud ஏற்ற முடியவில்லை. சாதனத் தரவு காட்டப்படுகிறது." }
+                            finally { busy = false }
                         }
-                    }) { Text("Cloud") }
+                    }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 11.dp)) { Text("Cloud", fontSize = 13.sp) }
                 }
-                if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
-                if (entries.isEmpty()) {
-                    Text(
-                        when (tab) { 0 -> "இன்னும் செய்திகள் இல்லை. புதிய செய்தியைச் சேர்க்கவும்."; 1 -> "இன்னும் அசைன்மென்ட்கள் இல்லை. புதியதைச் சேர்க்கவும்."; else -> "இன்னும் தொடர்புகள் இல்லை. புதிய தொடர்பைச் சேர்க்கவும்." },
-                        style = MaterialTheme.typography.bodyLarge
-                    )
+                if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val filtered = entries.filter { it.contains(search, ignoreCase = true) }
+                if (filtered.isEmpty()) {
+                    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text(if (search.isBlank()) "பதிவுகள் இல்லை" else "தேடலுக்குப் பொருத்தமான பதிவுகள் இல்லை",
+                                fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Text(if (search.isBlank()) "முதல் பதிவைச் சேர்க்க + புதிய பொத்தானைத் தொடவும்." else "வேறு சொல்லை உள்ளிட்டு முயற்சிக்கவும்.",
+                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(entries.filter { it.contains(search, ignoreCase = true) }) { entry ->
-                            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                                Text(entry, modifier = Modifier.padding(14.dp))
+                        items(filtered) { entry ->
+                            val lines = entry.split("\n")
+                            ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                                Column(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(lines.firstOrNull().orEmpty(), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 20.sp)
+                                    lines.drop(1).filter(String::isNotBlank).forEachIndexed { index, line ->
+                                        Text(line, fontSize = if (index == 0) 11.sp else 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 16.sp)
+                                    }
+                                }
                             }
                         }
                     }
                 }
             } else {
-                Text(
-                    when (tab) { 0 -> "புதிய செய்தி"; 1 -> "புதிய அசைன்மென்ட்"; else -> "புதிய தொடர்பு" },
-                    style = MaterialTheme.typography.headlineSmall
+                Text(when (tab) { 0 -> "புதிய செய்தி"; 1 -> "புதிய அசைன்மென்ட்"; else -> "புதிய தொடர்பு" },
+                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 22.sp, fontWeight = FontWeight.Bold))
+                OutlinedTextField(
+                    value = title, onValueChange = { title = it }, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(if (tab == 2) "பெயர்" else "தலைப்பு", fontSize = 13.sp) },
+                    singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                    shape = RoundedCornerShape(12.dp)
                 )
                 OutlinedTextField(
-                    value = title, onValueChange = { title = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(if (tab == 2) "பெயர்" else "தலைப்பு") },
-                    singleLine = true
+                    value = details, onValueChange = { details = it }, modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    label = { Text(if (tab == 2) "தொலைபேசி எண்" else "செய்தி / பணி விவரங்கள்", fontSize = 13.sp) },
+                    minLines = 4, textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                    shape = RoundedCornerShape(12.dp)
                 )
                 OutlinedTextField(
-                    value = details, onValueChange = { details = it },
-                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
-                    label = { Text(if (tab == 2) "தொலைபேசி எண்" else "விவரங்கள்") },
-                    minLines = 3
+                    value = extra, onValueChange = { extra = it }, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(when (tab) { 0 -> "மாவட்டம் / இடம்"; 1 -> "கடைசி தேதி (விருப்பம்)"; else -> "குறிப்புகள் (விருப்பம்)" }, fontSize = 13.sp) },
+                    singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                    shape = RoundedCornerShape(12.dp)
                 )
-                OutlinedTextField(
-                    value = extra, onValueChange = { extra = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(when (tab) { 0 -> "இடம் / மாவட்டம்"; 1 -> "கடைசி தேதி (விருப்பம்)"; else -> "குறிப்புகள் (விருப்பம்)" }) },
-                    singleLine = true
-                )
-                Button(
-                    enabled = !busy,
-                    onClick = {
-                        if (title.isBlank()) {
-                            message = "தலைப்பு அல்லது பெயரை உள்ளிடுங்கள்"
-                        } else {
-                            val savedTitle = title.trim()
-                            val savedDetails = details.trim()
-                            val savedExtra = extra.trim()
-                            scope.launch {
-                                busy = true
+                Button(enabled = !busy, onClick = {
+                    if (title.isBlank()) { message = "தலைப்பு அல்லது பெயரை உள்ளிடுங்கள்" }
+                    else {
+                        val savedTitle = title.trim(); val savedDetails = details.trim(); val savedExtra = extra.trim()
+                        scope.launch {
+                            busy = true
+                            try {
+                                when (tab) {
+                                    0 -> dao.insertNews(NewsItem(title = savedTitle, details = savedDetails, district = savedExtra))
+                                    1 -> dao.insertAssignment(Assignment(title = savedTitle, details = savedDetails, dueDate = savedExtra))
+                                    else -> dao.insertContact(Contact(name = savedTitle, phone = savedDetails, notes = savedExtra))
+                                }
+                                message = "சாதனத்தில் சேமிக்கப்பட்டது."
                                 try {
                                     when (tab) {
-                                        0 -> dao.insertNews(NewsItem(title = savedTitle, details = savedDetails, district = savedExtra))
-                                        1 -> dao.insertAssignment(Assignment(title = savedTitle, details = savedDetails, dueDate = savedExtra))
-                                        else -> dao.insertContact(Contact(name = savedTitle, phone = savedDetails, notes = savedExtra))
+                                        0 -> supabase.from("news_items").insert(CloudNewsInsert(savedTitle, savedDetails, savedExtra.ifBlank { null }))
+                                        1 -> supabase.from("assignments").insert(CloudAssignmentInsert(savedTitle, savedDetails, savedExtra.ifBlank { null }))
+                                        else -> supabase.from("contacts").insert(CloudContactInsert(savedTitle, savedDetails, savedExtra))
                                     }
-                                    message = "சாதனத்தில் சேமிக்கப்பட்டது."
-                                    try {
-                                        when (tab) {
-                                            0 -> supabase.from("news_items").insert(CloudNewsInsert(savedTitle, savedDetails, savedExtra.ifBlank { null }))
-                                            1 -> supabase.from("assignments").insert(CloudAssignmentInsert(savedTitle, savedDetails, savedExtra.ifBlank { null }))
-                                            else -> supabase.from("contacts").insert(CloudContactInsert(savedTitle, savedDetails, savedExtra))
-                                        }
-                                        message = "சாதனத்திலும் Cloud-லும் சேமிக்கப்பட்டது."
-                                    } catch (cloudError: Exception) {
-                                        message = "சாதனத்தில் சேமிக்கப்பட்டது; Cloud சேமிப்பு தோல்வி: ${cloudError.message.orEmpty().take(100)}"
-                                    }
-                                    title = ""; details = ""; extra = ""
-                                    page = Page.LIST
-                                    refreshLocal()
-                                } catch (e: Exception) {
-                                    message = "சேமிக்க முடியவில்லை: ${e.message.orEmpty().take(120)}"
-                                } finally { busy = false }
-                            }
+                                    message = "சாதனத்திலும் Cloud-லும் சேமிக்கப்பட்டது."
+                                } catch (cloudError: Exception) {
+                                    message = "சாதனத்தில் சேமிக்கப்பட்டது; Cloud சேமிப்பு அனுமதி தேவை (RLS)."
+                                }
+                                title = ""; details = ""; extra = ""; page = Page.LIST
+                                refreshLocal()
+                            } catch (e: Exception) {
+                                message = "சாதனத்தில் சேமிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்."
+                            } finally { busy = false }
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(if (busy) "சேமிக்கிறது…" else "சேமிக்கவும்") }
-                OutlinedButton(onClick = { page = Page.LIST }, modifier = Modifier.fillMaxWidth()) { Text("ரத்து செய்") }
-                if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
+                    }
+                }, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(vertical = 12.dp)) {
+                    Text(if (busy) "சேமிக்கிறது…" else "சேமிக்கவும்", fontSize = 14.sp)
+                }
+                OutlinedButton(onClick = { page = Page.LIST }, modifier = Modifier.fillMaxWidth()) { Text("ரத்து செய்", fontSize = 13.sp) }
+                if (message.isNotBlank()) Text(message, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
