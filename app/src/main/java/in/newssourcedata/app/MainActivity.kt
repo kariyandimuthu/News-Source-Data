@@ -75,7 +75,7 @@ private data class Entry(val id:String,val title:String,val body:String,val meta
       form=false; message="சேமிக்கப்பட்டது"; load()
      } catch(e:Exception){message=e.message ?: "சேமிக்க முடியவில்லை"}
      busy=false
-    },modifier=Modifier.weight(2f).heightIn(min=52.dp)){Text(if(busy)"சேமிக்கிறது…" else "சேமி")}
+    } },modifier=Modifier.weight(2f).heightIn(min=52.dp)){Text(if(busy)"சேமிக்கிறது…" else "சேமி")}
    } }
   } else {
    NavigationBar { listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்").forEachIndexed{i,l->NavigationBarItem(selected=tab==i,onClick={tab=i;form=false;search=""},icon={Text(listOf("📰","📋","☎")[i])},label={Text(l)})} }
