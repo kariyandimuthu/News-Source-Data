@@ -12,7 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.auth.Auth
-import io.github.jan.supabase.gotrue.auth
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
@@ -98,7 +98,7 @@ fun NewsSourceScreen(dao: NewsDao) {
     val scope = rememberCoroutineScope()
 
     suspend fun ensureSignedIn() {
-        if (supabase.gotrue.currentSessionOrNull() == null) {
+        if (supabase.auth.currentSessionOrNull() == null) {
             supabase.gotrue.signInAnonymously()
         }
     }
