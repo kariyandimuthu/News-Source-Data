@@ -99,7 +99,7 @@ fun NewsSourceScreen(dao: NewsDao) {
 
     suspend fun ensureSignedIn() {
         if (supabase.auth.currentSessionOrNull() == null) {
-            supabase.gotrue.signInAnonymously()
+            supabase.auth.signInAnonymously()
         }
     }
 
