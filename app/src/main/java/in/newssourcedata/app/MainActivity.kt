@@ -1,6 +1,7 @@
 package `in`.newssourcedata.app
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -9,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -89,6 +91,7 @@ fun NewsSourceScreen(dao: NewsDao) {
     var message by remember { mutableStateOf("உங்கள் பதிவுகள் இந்தச் சாதனத்தில் சேமிக்கப்படும்.") }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     suspend fun refreshLocal() {
         entries = when (tab) {
@@ -188,6 +191,20 @@ fun NewsSourceScreen(dao: NewsDao) {
                                     lines.drop(1).filter(String::isNotBlank).forEachIndexed { index, line ->
                                         Text(line, fontSize = if (index == 0) 11.sp else 12.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 16.sp)
+                                    }
+                                    if (tab == 0 || tab == 1) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                val shareText = (if (tab == 0) "📰 செய்தி" else "📋 அசைன்மென்ட்") + "\n\n" + entry
+                                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                                    type = "text/plain"
+                                                    putExtra(Intent.EXTRA_TEXT, shareText)
+                                                }
+                                                context.startActivity(Intent.createChooser(sendIntent, "WhatsApp-ல் பகிரவும்"))
+                                            },
+                                            modifier = Modifier.align(Alignment.End),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
+                                        ) { Text("WhatsApp-ல் பகிர்", fontSize = 12.sp) }
                                     }
                                 }
                             }
