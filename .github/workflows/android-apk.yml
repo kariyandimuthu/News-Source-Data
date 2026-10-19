@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - fix/supabase-apk-build
 
 permissions:
   contents: read
@@ -22,6 +23,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Install Android build packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -30,9 +39,23 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 
-      - name: Upload APK
+      - name: Verify APK signature and package metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee apk-metadata.txt
+          grep -E "^(package:|sdkVersion:|targetSdkVersion:|native-code:)" apk-metadata.txt || true
+          sha256sum "$APK" | tee apk-sha256.txt
+
+      - name: Upload APK and diagnostic metadata
         uses: actions/upload-artifact@v4
         with:
           name: News-Source-Data-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            apk-metadata.txt
+            apk-sha256.txt
           if-no-files-found: error
