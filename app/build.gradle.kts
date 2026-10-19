@@ -41,8 +41,8 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     // Supabase Kotlin SDK 2.x used the GoTrue module name for authentication.
-    implementation(platform("io.github.jan-tennert.supabase:bom:2.6.1-dev"))
-    implementation("io.github.jan-tennert.supabase:gotrue-kt")
+    implementation(platform("io.github.jan-tennert.supabase:bom:3.0.0"))
+    implementation("io.github.jan-tennert.supabase:auth-kt")
     implementation("io.github.jan-tennert.supabase:postgrest-kt")
-    implementation("io.ktor:ktor-client-android:2.3.13")
+    implementation("io.ktor:ktor-client-android:3.0.3")
 }
