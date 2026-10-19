@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - fix/supabase-apk-build
+      - feature/news-list-and-fullscreen-forms
 
 permissions:
   contents: read
