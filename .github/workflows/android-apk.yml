@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - fix/supabase-apk-build
 
 permissions:
   contents: read
