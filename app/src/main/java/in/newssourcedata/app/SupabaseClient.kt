@@ -14,16 +14,15 @@ class SupabaseClient(context: Context) {
     val accessToken: String? get() = prefs.getString("access_token", null)
     val isSignedIn: Boolean get() = !accessToken.isNullOrBlank()
 
-    private fun request(path: String, method: String, body: JSONObject? = null, auth: Boolean = true, prefer: String? = null): String {
-        val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection)
+    private fun execute(path: String, method: String, body: JSONObject?, auth: Boolean, prefer: String?, token: String?): Pair<Int, String> {
+        val connection = URL(baseUrl + path).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = method
             connection.connectTimeout = 15000
             connection.readTimeout = 15000
             connection.setRequestProperty("apikey", apiKey)
             connection.setRequestProperty("Content-Type", "application/json")
-            if (auth && !accessToken.isNullOrBlank()) connection.setRequestProperty("Authorization", "Bearer $accessToken")
-            else connection.setRequestProperty("Authorization", "Bearer $apiKey")
+            connection.setRequestProperty("Authorization", "Bearer " + if (auth) token.orEmpty() else apiKey)
             if (prefer != null) connection.setRequestProperty("Prefer", prefer)
             if (body != null) {
                 connection.doOutput = true
@@ -32,12 +31,51 @@ class SupabaseClient(context: Context) {
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val response = stream?.bufferedReader()?.use { it.readText() } ?: ""
+            return code to response
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    @Synchronized
+    private fun refreshSession(): Boolean {
+        val refreshToken = prefs.getString("refresh_token", null)?.takeIf { it.isNotBlank() } ?: return false
+        return try {
+            val (code, response) = execute(
+                "/auth/v1/token?grant_type=refresh_token", "POST",
+                JSONObject().put("refresh_token", refreshToken), auth = false, prefer = null, token = null
+            )
             if (code !in 200..299) {
-                val msg = try { JSONObject(response).optString("msg", JSONObject(response).optString("message", response)) } catch (_: Exception) { response }
-                throw IllegalStateException("HTTP $code: $msg")
+                if (code == 400 || code == 401) signOut()
+                false
+            } else {
+                val json = JSONObject(response)
+                val access = json.optString("access_token")
+                val refreshed = json.optString("refresh_token", refreshToken)
+                if (access.isBlank()) false else {
+                    prefs.edit().putString("access_token", access).putString("refresh_token", refreshed).apply()
+                    true
+                }
             }
-            return response
-        } finally { connection.disconnect() }
+        } catch (_: Exception) { false }
+    }
+
+    private fun request(path: String, method: String, body: JSONObject? = null, auth: Boolean = true, prefer: String? = null): String {
+        var (code, response) = execute(path, method, body, auth, prefer, accessToken)
+        if (auth && code == 401 && refreshSession()) {
+            val retry = execute(path, method, body, auth = true, prefer = prefer, token = accessToken)
+            code = retry.first
+            response = retry.second
+        }
+        if (code !in 200..299) {
+            val msg = try {
+                val json = JSONObject(response)
+                json.optString("msg").ifBlank { json.optString("message").ifBlank { json.optString("error_description").ifBlank { response } } }
+            } catch (_: Exception) { response }
+            if (code == 401 && auth) throw IllegalStateException("உங்கள் உள்நுழைவு காலாவதியாகிவிட்டது. மீண்டும் உள்நுழையவும். (HTTP 401)")
+            throw IllegalStateException("HTTP $code: $msg")
+        }
+        return response
     }
 
     fun signIn(email: String, password: String) {
