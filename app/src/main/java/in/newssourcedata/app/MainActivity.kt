@@ -167,7 +167,6 @@ private val categories = listOf("குற்றம்","விபத்து",
      TextButton(onClick={deleteTarget=e}){Text("நீக்கு")}
     }
    }
-   HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant.copy(alpha=0.18f))
   }}
   }
  }
