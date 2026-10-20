@@ -56,7 +56,7 @@ private data class Entry(val id:String,val title:String,val body:String,val meta
   return
  }
  Scaffold(
-  topBar={TopAppBar(title={Text("News Source Data")},actions={if(!form) TextButton(onClick={load}){Text("புதுப்பி")}; TextButton(onClick={api.signOut();signed=false}){Text("வெளியேறு")}})},
+  topBar={TopAppBar(title={Text("News Source Data")},actions={if(!form) TextButton(onClick={load()}){Text("புதுப்பி")}; TextButton(onClick={api.signOut();signed=false}){Text("வெளியேறு")}})},
   bottomBar={if(form) {
    Surface(tonalElevation=3.dp) { Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
     OutlinedButton(onClick={form=false},modifier=Modifier.weight(1f).heightIn(min=52.dp)){Text("ரத்து")}
