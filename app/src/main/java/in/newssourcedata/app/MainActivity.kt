@@ -8,6 +8,9 @@ import android.app.TimePickerDialog
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,7 +32,7 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
  override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContent { MaterialTheme { App() } } }
 }
-private data class Entry(val id:String,val title:String,val body:String,val meta:String="",val date:String="",val phone:String="")
+private data class Entry(val id:String,val title:String,val body:String,val meta:String="",val date:String="",val phone:String="",val startTime:String="",val endDate:String="",val endTime:String="")
 private val departments = listOf("காவல்","கோயில்","காலநிலை","கல்வி","மருத்துவம்","அரசியல்","உள்ளாட்சி","விபத்து","பொது")
 private val categories = listOf("குற்றம்","விபத்து","செய்தியாளர் சந்திப்பு","அரசு அறிவிப்பு","நிகழ்ச்சி","மக்கள் பிரச்சினை","மற்றவை")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,10 +48,10 @@ private val categories = listOf("குற்றம்","விபத்து",
  var district by remember { mutableStateOf("திருநெல்வேலி") }; var department by remember { mutableStateOf("காவல்") }; var category by remember { mutableStateOf("மற்றவை") }
  var eventDate by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())) }
  var eventTime by remember { mutableStateOf("") }; var eventEndTime by remember { mutableStateOf("") }; var eventEndDate by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())) }; var eventPlace by remember { mutableStateOf("") }
- var contactExtra by remember { mutableStateOf("") }; var search by remember { mutableStateOf("") }
+ var contactExtra by remember { mutableStateOf("") }; var search by remember { mutableStateOf("") }; var selectedDate by remember { mutableStateOf("") }; var selectedCategory by remember { mutableStateOf("அனைத்தும்") }
  var rows by remember { mutableStateOf(listOf<Entry>()) }; var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf("") }
  var selectedEntry by remember { mutableStateOf<Entry?>(null) }; var deleteTarget by remember { mutableStateOf<Entry?>(null) }
- fun load() { scope.launch { busy=true; try { rows=withContext(Dispatchers.IO) { val table=listOf("news_items","assignments","contacts")[tab]; val a=api.list(table); (0 until a.length()).mapNotNull { i -> val o=a.getJSONObject(i); when(tab) { 0->Entry(o.optString("id"),o.optString("headline"),o.optString("body"),o.optString("category"),o.optString("news_date")); 1->{ val d=o.optString("description"); val date=Regex("\\[DATE:([^]]+)]").find(d)?.groupValues?.get(1) ?: ""; val startTime=Regex("\\[STARTTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: Regex("\\[TIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val endDate=Regex("\\[ENDDATE:([^]]*)]").find(d)?.groupValues?.get(1) ?: date; val endTime=Regex("\\[ENDTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val expired=try { if(endDate.isNotBlank()&&endTime.isNotBlank()) { val end=SimpleDateFormat("yyyy-MM-dd HH:mm",Locale.US).parse("$endDate $endTime"); end!=null && end.before(Date()) } else false } catch(_:Exception){false}; val id=o.optString("id"); if(expired) { api.delete("assignments",id); null } else { val clean=d.replace(Regex("\\[(DATE|TIME|STARTTIME|ENDDATE|ENDTIME|PLACE):[^]]*]\\s*"),"").trim(); Entry(id,o.optString("title"),clean,o.optString("category"),date) } }; else->Entry(o.optString("id"),o.optString("full_name"),o.optString("phone"),o.optString("notes"),"",o.optString("phone")) } } }.sortedWith(compareBy<Entry> { if(tab==1) it.date.ifBlank{"9999-99-99"} else "" }.thenByDescending { it.id }); message="" } catch(e:Exception){ message=e.message ?: "தரவைப் பெற முடியவில்லை" }; busy=false } }
+ fun load() { scope.launch { busy=true; try { rows=withContext(Dispatchers.IO) { val table=listOf("news_items","assignments","contacts")[tab]; val a=api.list(table); (0 until a.length()).mapNotNull { i -> val o=a.getJSONObject(i); when(tab) { 0->Entry(o.optString("id"),o.optString("headline"),o.optString("body"),o.optString("category"),o.optString("news_date")); 1->{ val d=o.optString("description"); val date=Regex("\\[DATE:([^]]+)]").find(d)?.groupValues?.get(1) ?: ""; val startTime=Regex("\\[STARTTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: Regex("\\[TIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val endDate=Regex("\\[ENDDATE:([^]]*)]").find(d)?.groupValues?.get(1) ?: date; val endTime=Regex("\\[ENDTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val expired=try { if(endDate.isNotBlank()&&endTime.isNotBlank()) { val end=SimpleDateFormat("yyyy-MM-dd HH:mm",Locale.US).parse("$endDate $endTime"); end!=null && end.before(Date()) } else false } catch(_:Exception){false}; val id=o.optString("id"); if(expired) { try { api.delete("assignments",id) } catch(_:Exception) { }; null } else { val clean=d.replace(Regex("\\[(DATE|TIME|STARTTIME|ENDDATE|ENDTIME|PLACE):[^]]*]\\s*"),"").trim(); Entry(id,o.optString("title"),clean,o.optString("category"),date,"",startTime,endDate,endTime) } }; else->Entry(o.optString("id"),o.optString("full_name"),o.optString("phone"),o.optString("notes"),"",o.optString("phone")) } } }.sortedWith(compareBy<Entry> { if(tab==1) it.date.ifBlank{"9999-99-99"} else "" }.thenByDescending { it.id }); message="" } catch(e:Exception){ message=e.message ?: "தரவைப் பெற முடியவில்லை" }; busy=false } }
  fun clearForm() { editingId=null; title=""; body=""; category="மற்றவை"; department="காவல்"; district="திருநெல்வேலி"; eventDate=SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()); eventTime=""; eventEndTime=""; eventEndDate=eventDate; eventPlace=""; contactExtra=""; formStep=0 }
  fun startEntry(which:Int) { tab=which; clearForm(); form=true; showAddMenu=false; message="" }
  fun saveEntry() { scope.launch { busy=true; message=""; try { withContext(Dispatchers.IO) {
@@ -92,7 +95,7 @@ private val categories = listOf("குற்றம்","விபத்து",
  }
  Scaffold(
   topBar={TopAppBar(title={Text(if(form) listOf("புதிய செய்தி","புதிய அசைன்மென்ட்","புதிய தொடர்பு")[tab] else "News Source Data")},navigationIcon={if(form) TextButton(onClick={form=false;formStep=0;editingId=null}){Text("ரத்து")} },actions={if(!form) TextButton(onClick={load()}){Text("புதுப்பி")}; TextButton(onClick={api.signOut();signed=false}){Text("வெளியேறு")}})},
-  bottomBar={if(!form) NavigationBar { listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்").forEachIndexed{i,l->NavigationBarItem(selected=tab==i,onClick={tab=i;form=false;search=""},icon={Text(listOf("📰","📋","☎")[i])},label={Text(l)})} }},
+  bottomBar={if(!form) NavigationBar { listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்").forEachIndexed{i,l->NavigationBarItem(selected=tab==i,onClick={tab=i;form=false;search="";selectedDate="";selectedCategory="அனைத்தும்"},icon={Text(listOf("📰","📋","☎")[i])},label={Text(l)})} }},
   floatingActionButton={if(form) FloatingActionButton(onClick={if(!busy && (if(tab==0||tab==1) body.isNotBlank() else title.isNotBlank()&&body.isNotBlank())) { if(tab==0&&formStep==0) formStep=1 else if(tab==1&&formStep==0) formStep=1 else if(tab==0&&formStep==1) formStep=2 else saveEntry() }}){Text(if(busy)"…" else "✓",style=MaterialTheme.typography.headlineMedium)} else FloatingActionButton(onClick={showAddMenu=true}){Text("+",style=MaterialTheme.typography.headlineMedium)}}
  ) { p ->
  if(showAddMenu) AlertDialog(onDismissRequest={showAddMenu=false},title={Text("புதிய பதிவு")},text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){listOf("புதிய செய்தி","புதிய அசைன்மென்ட்","புதிய தொடர்பு").forEachIndexed{i,l->OutlinedButton(onClick={startEntry(i)},modifier=Modifier.fillMaxWidth()){Text(l)}}}},confirmButton={TextButton(onClick={showAddMenu=false}){Text("மூடு")}})
@@ -132,16 +135,28 @@ private val categories = listOf("குற்றம்","விபத்து",
    if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.error)
   } else {
    Text(listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்")[tab],style=MaterialTheme.typography.headlineSmall)
-   OutlinedTextField(search,{search=it},Modifier.fillMaxWidth(),label={Text("தேடுங்கள்")},singleLine=true)
+   Surface(color=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.55f),shape=MaterialTheme.shapes.extraLarge,modifier=Modifier.fillMaxWidth()) {
+    Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=13.dp),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+     Text("⌕",style=MaterialTheme.typography.headlineSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+     Box(Modifier.weight(1f)) { if(search.isBlank()) Text("செய்தி, தலைப்பு அல்லது இடத்தைத் தேடுங்கள்",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodyMedium); BasicTextField(value=search,onValueChange={search=it},singleLine=true,textStyle=MaterialTheme.typography.bodyLarge.copy(color=MaterialTheme.colorScheme.onSurface),modifier=Modifier.fillMaxWidth()) }
+     TextButton(onClick={val cal=java.util.Calendar.getInstance(); DatePickerDialog(context,{_,y,m,d->selectedDate=String.format(Locale.US,"%04d-%02d-%02d",y,m+1,d)},cal.get(java.util.Calendar.YEAR),cal.get(java.util.Calendar.MONTH),cal.get(java.util.Calendar.DAY_OF_MONTH)).show()}) { Text(if(selectedDate.isBlank()) "▦" else selectedDate.substring(5)) }
+    }
+   }
+   if(selectedDate.isNotBlank()) TextButton(onClick={selectedDate=""}) { Text("தேதி வடிகட்டியை நீக்கு  ×") }
+   if(tab==0) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) { (listOf("அனைத்தும்")+categories).forEach { cat -> FilterChip(selected=selectedCategory==cat,onClick={selectedCategory=cat},label={Text(cat)},border=null) } }
    if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
    if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.primary)
-   val visibleRows=rows.filter{it.title.contains(search,true)||it.body.contains(search,true)||it.meta.contains(search,true)}
+   val visibleRows=rows.filter{(it.title.contains(search,true)||it.body.contains(search,true)||it.meta.contains(search,true)) && (selectedDate.isBlank() || it.date==selectedDate) && (tab!=0 || selectedCategory=="அனைத்தும்" || it.meta.contains(selectedCategory,true))}
    if(visibleRows.isEmpty()&&!busy) Text("பதிவுகள் இல்லை. + பொத்தானைத் தொட்டு சேர்க்கவும்.")
-   LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp),contentPadding=PaddingValues(bottom=12.dp)){items(visibleRows,key={it.id}){e->ElevatedCard(onClick={selectedEntry=e},modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
-    if(tab==1&&e.date.isNotBlank()) Text(e.date,style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
+   LazyColumn(verticalArrangement=Arrangement.spacedBy(0.dp),contentPadding=PaddingValues(bottom=88.dp)){items(visibleRows,key={it.id}){e->Column(Modifier.fillMaxWidth().clickable { selectedEntry=e }.padding(vertical=16.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
+    if(tab==1) Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+     Text("◷",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
+     Text(e.date.ifBlank{"தேதி இல்லை"} + if(e.startTime.isNotBlank()) "  ${e.startTime}" else "",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
+     if(e.endDate.isNotBlank()||e.endTime.isNotBlank()) Text("→ ${e.endDate.ifBlank{e.date}} ${e.endTime}",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     Text(e.title,style=MaterialTheme.typography.titleMedium)
-    if(e.body.isNotBlank()) { val previewBody=if(tab==0||tab==1) e.body.lineSequence().drop(1).joinToString("\n").trim() else e.body; if(previewBody.isNotBlank()) Text(previewBody,maxLines=3,overflow=TextOverflow.Ellipsis) }
-    if(e.meta.isNotBlank()) Text(e.meta,style=MaterialTheme.typography.labelSmall)
+    if(e.body.isNotBlank()) { val previewBody=if(tab==0||tab==1) e.body.lineSequence().drop(1).joinToString("\n").trim() else e.body; if(previewBody.isNotBlank()) Text(previewBody,maxLines=3,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant) }
+    if(e.meta.isNotBlank()) Text(e.meta,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
     if(tab==2) Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
      TextButton(onClick={val number=e.phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$number")))}){Text("அழை")}
      TextButton(onClick={val number=e.phone.filter{it.isDigit()};context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://wa.me/$number")))}){Text("WhatsApp")}
@@ -150,7 +165,9 @@ private val categories = listOf("குற்றம்","விபத்து",
      TextButton(onClick={val s=e.title+"\n\n"+e.body;context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"பகிரவும்"))}){Text("பகிர்")}
      TextButton(onClick={deleteTarget=e}){Text("நீக்கு")}
     }
-   }}}}
+   }
+   HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant.copy(alpha=0.18f))
+  }}
   }
  }
  }
