@@ -9,6 +9,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.activity.ComponentActivity
@@ -48,7 +49,16 @@ import java.util.Date
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
- override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContent { MaterialTheme { App() } } }
+ override fun onCreate(savedInstanceState: Bundle?) {
+  super.onCreate(savedInstanceState)
+  val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+  Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+   Log.e("NewsSourceDataCrash", "Uncaught crash on thread: " + thread.name, error)
+   previousHandler?.uncaughtException(thread, error)
+  }
+  Log.i("NewsSourceDataCrash", "MainActivity created")
+  setContent { MaterialTheme { App() } }
+ }
 }
 private data class Entry(val id:String,val title:String,val body:String,val meta:String="",val date:String="",val phone:String="",val startTime:String="",val endDate:String="",val endTime:String="")
 private data class Member(val id:String,val email:String,val name:String,val status:String)
@@ -89,7 +99,7 @@ private val categories = listOf("குற்றம்","விபத்து",
   if(api.isSignedIn) { try { val profile=withContext(Dispatchers.IO){api.currentProfile()}; val status=profile.optString("approval_status"); signed=status=="approved"; isAdmin=signed && profile.optString("role")=="owner"; if(!signed){api.signOut();message=when(status){"pending"->"உங்கள் கணக்கு நிர்வாகி அனுமதிக்காக காத்திருக்கிறது.";"rejected"->"உங்கள் கணக்கு நிராகரிக்கப்பட்டுள்ளது.";"revoked"->"உங்கள் அணுகல் ரத்து செய்யப்பட்டுள்ளது.";else->"செயலியைப் பயன்படுத்த அனுமதி இல்லை."} } } catch(e:Exception){api.signOut();signed=false;message=e.message ?: "அனுமதியைச் சரிபார்க்க முடியவில்லை"} }
  }
  fun refreshPending() { scope.launch { try { pendingMembers=withContext(Dispatchers.IO){ val a=api.pendingProfiles(); (0 until a.length()).map { i->val o=a.getJSONObject(i); Member(o.optString("id"),o.optString("email"),o.optString("display_name"),o.optString("approval_status")) } }; memberDialog=true } catch(e:Exception){message=e.message ?: "நிலுவை கணக்குகளைப் பெற முடியவில்லை"} } }
- fun load() { scope.launch { busy=true; try { rows=withContext(Dispatchers.IO) { val table=listOf("news_items","assignments","contacts")[tab]; val a=api.list(table); (0 until a.length()).mapNotNull { i -> val o=a.getJSONObject(i); when(tab) { 0->Entry(o.optString("id"),o.optString("headline"),o.optString("body"),o.optString("category"),o.optString("news_date")); 1->{ val d=o.optString("description"); val date=Regex("\\[DATE:([^]]+)]").find(d)?.groupValues?.get(1) ?: ""; val startTime=Regex("\\[STARTTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: Regex("\\[TIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val endDate=Regex("\\[ENDDATE:([^]]*)]").find(d)?.groupValues?.get(1) ?: date; val endTime=Regex("\\[ENDTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val expired=try { if(endDate.isNotBlank()&&endTime.isNotBlank()) { val end=SimpleDateFormat("yyyy-MM-dd HH:mm",Locale.US).parse("$endDate $endTime"); end!=null && end.before(Date()) } else false } catch(_:Exception){false}; val id=o.optString("id"); if(expired) { try { api.delete("assignments",id) } catch(_:Exception) { }; null } else { val clean=d.replace(Regex("\\[(DATE|TIME|STARTTIME|ENDDATE|ENDTIME|PLACE):[^]]*]\\s*"),"").replace(Regex("(?m)^\\\\n+"),"").replace("\\\\n","\n").replace(Regex("\\\\n+"),"\n").trim(); Entry(id,o.optString("title"),clean,o.optString("category"),date,"",startTime,endDate,endTime) } }; else->Entry(o.optString("id"),o.optString("full_name"),o.optString("phone"),o.optString("notes"),"",o.optString("phone")) } } }.sortedWith(compareByDescending<Entry> { it.date.ifBlank{"0000-00-00"} }.thenByDescending { it.id }); message="" } catch(e:Exception){ message=e.message ?: "தரவைப் பெற முடியவில்லை" }; busy=false } }
+ fun load() { scope.launch { busy=true; Log.i("NewsSourceDataCrash", "Loading tab=" + tab); try { rows=withContext(Dispatchers.IO) { val table=listOf("news_items","assignments","contacts")[tab]; Log.i("NewsSourceDataCrash", "Fetching table=" + table); val a=api.list(table); Log.i("NewsSourceDataCrash", "Fetched table=" + table + " count=" + a.length()); (0 until a.length()).mapNotNull { i -> val o=a.getJSONObject(i); when(tab) { 0->Entry(o.optString("id"),o.optString("headline"),o.optString("body"),o.optString("category"),o.optString("news_date")); 1->{ val d=o.optString("description"); val date=Regex("\\[DATE:([^]]+)]").find(d)?.groupValues?.get(1) ?: ""; val startTime=Regex("\\[STARTTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: Regex("\\[TIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val endDate=Regex("\\[ENDDATE:([^]]*)]").find(d)?.groupValues?.get(1) ?: date; val endTime=Regex("\\[ENDTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val expired=try { if(endDate.isNotBlank()&&endTime.isNotBlank()) { val end=SimpleDateFormat("yyyy-MM-dd HH:mm",Locale.US).parse("$endDate $endTime"); end!=null && end.before(Date()) } else false } catch(_:Exception){false}; val id=o.optString("id"); if(expired) { try { api.delete("assignments",id) } catch(_:Exception) { }; null } else { val clean=d.replace(Regex("\\[(DATE|TIME|STARTTIME|ENDDATE|ENDTIME|PLACE):[^]]*]\\s*"),"").replace(Regex("(?m)^\\\\n+"),"").replace("\\\\n","\n").replace(Regex("\\\\n+"),"\n").trim(); Entry(id,o.optString("title"),clean,o.optString("category"),date,"",startTime,endDate,endTime) } }; else->Entry(o.optString("id"),o.optString("full_name"),o.optString("phone"),o.optString("notes"),"",o.optString("phone")) } } }.sortedWith(compareByDescending<Entry> { it.date.ifBlank{"0000-00-00"} }.thenByDescending { it.id }); message="" } catch(e:Exception){ Log.e("NewsSourceDataCrash", "Data load failed for tab=" + tab, e); message=e.message ?: "தரவைப் பெற முடியவில்லை" }; busy=false } }
  fun clearForm() { editingId=null; title=""; body=""; category="மற்றவை"; customCategory=""; department="காவல்"; district="திருநெல்வேலி"; eventDate=SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()); eventTime=""; eventEndTime=""; eventEndDate=eventDate; eventPlace=""; contactExtra=""; formStep=0 }
  fun startEntry(which:Int) { tab=which; clearForm(); form=true; showAddMenu=false; message="" }
  fun saveEntry() { scope.launch { busy=true; message=""; try { withContext(Dispatchers.IO) {
@@ -118,9 +128,11 @@ private val categories = listOf("குற்றம்","விபத்து",
    Button(enabled=!busy&&email.trim().contains("@")&&password.length>=6,onClick={scope.launch {
     busy=true; message=""
     try {
+     Log.i("NewsSourceDataCrash", "Login started; signup=" + signup)
      withContext(Dispatchers.IO){if(signup) api.signUp(email,password) else api.signIn(email,password)}
-     if(api.isSignedIn) { val profile=withContext(Dispatchers.IO){api.currentProfile()}; val status=profile.optString("approval_status"); if(status=="approved"){signed=true;isAdmin=profile.optString("role")=="owner";message=""} else {api.signOut();signed=false;message=when(status){"pending"->"கணக்கு உருவாக்கப்பட்டது. நிர்வாகி அனுமதி வழங்கிய பின் உள்நுழையலாம்.";"rejected"->"உங்கள் கணக்கு நிராகரிக்கப்பட்டுள்ளது.";"revoked"->"உங்கள் அணுகல் ரத்து செய்யப்பட்டுள்ளது.";else->"மின்னஞ்சல் உறுதிப்படுத்தல் தேவை. உறுதிப்படுத்திய பின் உள்நுழையவும்."}} } else { signed=false; message="மின்னஞ்சல் உறுதிப்படுத்தல் தேவை. உங்கள் மின்னஞ்சலைச் சரிபார்க்கவும்." }
+     if(api.isSignedIn) { val profile=withContext(Dispatchers.IO){api.currentProfile()}; val status=profile.optString("approval_status"); Log.i("NewsSourceDataCrash", "Profile loaded; status=" + status + " role=" + profile.optString("role")); if(status=="approved"){signed=true;isAdmin=profile.optString("role")=="owner";message=""} else {api.signOut();signed=false;message=when(status){"pending"->"கணக்கு உருவாக்கப்பட்டது. நிர்வாகி அனுமதி வழங்கிய பின் உள்நுழையலாம்.";"rejected"->"உங்கள் கணக்கு நிராகரிக்கப்பட்டுள்ளது.";"revoked"->"உங்கள் அணுகல் ரத்து செய்யப்பட்டுள்ளது.";else->"மின்னஞ்சல் உறுதிப்படுத்தல் தேவை. உறுதிப்படுத்திய பின் உள்நுழையவும்."}} } else { signed=false; message="மின்னஞ்சல் உறுதிப்படுத்தல் தேவை. உங்கள் மின்னஞ்சலைச் சரிபார்க்கவும்." }
     } catch(e:Exception) {
+     Log.e("NewsSourceDataCrash", "Login/profile check failed", e)
      message=when {
       e is java.net.SocketTimeoutException -> "சேவையகத்துடன் இணைக்க நேரம் முடிந்தது. இணைய இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்."
       e is java.net.UnknownHostException -> "இணையம் அல்லது Supabase சேவையகத்தை அணுக முடியவில்லை. இணைய இணைப்பைச் சரிபார்க்கவும்."
