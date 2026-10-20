@@ -65,4 +65,8 @@ class SupabaseClient(context: Context) {
     fun insert(table: String, values: JSONObject) {
         request("/rest/v1/$table", "POST", values, prefer = "return=minimal")
     }
+
+    fun update(table: String, id: String, values: JSONObject) {
+        request("/rest/v1/$table?id=eq.$id", "PATCH", values, prefer = "return=minimal")
+    }
 }
