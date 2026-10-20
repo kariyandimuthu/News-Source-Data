@@ -166,8 +166,8 @@ private val categories = listOf("குற்றம்","விபத்து",
     if(e.body.isNotBlank()) { val previewBody=if(tab==0||tab==1) e.body.lineSequence().drop(1).joinToString("\n").trim() else e.body; if(previewBody.isNotBlank()) Text(previewBody,maxLines=3,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant) }
     if(e.meta.isNotBlank()) Text(e.meta,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
     if(tab==2) Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-     TextButton(onClick={val number=e.phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$number")))}){Text("அழை")}
-     TextButton(onClick={val number=e.phone.filter{it.isDigit()};context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://wa.me/$number")))}){Text("WhatsApp")}
+     FilledTonalButton(onClick={val number=e.phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$number")))},contentPadding=PaddingValues(horizontal=12.dp,vertical=4.dp)){Text("☎")}
+     FilledTonalButton(onClick={val number=e.phone.filter{it.isDigit()};context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://wa.me/$number")))},contentPadding=PaddingValues(horizontal=12.dp,vertical=4.dp)){Text("◉ WhatsApp")}
     } else Row(horizontalArrangement=Arrangement.End,modifier=Modifier.fillMaxWidth()){
      TextButton(onClick={selectedEntry=e}){Text("முழுமையாக")}
      TextButton(onClick={val s=e.title+"\n\n"+e.body;context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"பகிரவும்"))}){Text("பகிர்")}
