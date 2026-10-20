@@ -34,7 +34,7 @@ private data class Entry(val id:String,val title:String,val body:String,val meta
  val scope= rememberCoroutineScope()
  var signed by remember { mutableStateOf(api.isSignedIn) }
  var email by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }; var signup by remember { mutableStateOf(false) }
- var tab by remember { mutableIntStateOf(0) }; var form by remember { mutableStateOf(false) }
+ var tab by remember { mutableIntStateOf(0) }; var form by remember { mutableStateOf(false) }; var editingId by remember { mutableStateOf<String?>(null) }
  var title by remember { mutableStateOf("") }; var body by remember { mutableStateOf("") }
  var district by remember { mutableStateOf("Tirunelveli") }; var category by remember { mutableStateOf("general") }
  var eventDate by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())) }
@@ -42,7 +42,7 @@ private data class Entry(val id:String,val title:String,val body:String,val meta
  var contactExtra by remember { mutableStateOf("") }; var search by remember { mutableStateOf("") }
  var rows by remember { mutableStateOf(listOf<Entry>()) }; var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf("") }
  fun load() { scope.launch { busy=true; try { rows=withContext(Dispatchers.IO) { val table=listOf("news_items","assignments","contacts")[tab]; val a=api.list(table); (0 until a.length()).map { i -> val o=a.getJSONObject(i); when(tab) { 0->Entry(o.optString("id"),o.optString("headline"),o.optString("body"),o.optString("category"),o.optString("news_date")); 1-> { val d=o.optString("description"); val date=Regex("\\[DATE:([^]]+)]").find(d)?.groupValues?.get(1) ?: ""; Entry(o.optString("id"),o.optString("title"),d.replace(Regex("\\[DATE:[^]]+]\\s*"),"").replace(Regex("\\[TIME:[^]]+]\\s*"),"").replace(Regex("\\[PLACE:[^]]+]\\s*"),""),o.optString("category"),date) }; else->Entry(o.optString("id"),o.optString("full_name"),o.optString("phone"),o.optString("notes")) } } }.sortedWith(compareBy<Entry> { if(tab==1) it.date.ifBlank{"9999-99-99"} else "" }.thenByDescending { it.id }); message="" } catch(e:Exception){ message=e.message ?: "தரவைப் பெற முடியவில்லை" }; busy=false } }
- fun clearForm() { title=""; body=""; category="general"; eventDate=SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()); eventTime=""; eventPlace=""; contactExtra="" }
+ fun clearForm() { editingId=null; title=""; body=""; category="general"; eventDate=SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()); eventTime=""; eventPlace=""; contactExtra="" }
  LaunchedEffect(signed,tab) { if(signed) load() }
  if(!signed) {
   Scaffold(topBar={TopAppBar(title={Text("News Source Data")})}) { p-> Column(Modifier.fillMaxSize().padding(p).padding(20.dp), verticalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -70,7 +70,7 @@ private data class Entry(val id:String,val title:String,val body:String,val meta
         1->JSONObject().put("title",title.trim()).put("description","[DATE:$eventDate] [TIME:$eventTime] [PLACE:$eventPlace]\n"+body.trim()).put("category",category.ifBlank{"general"}).put("district_id",did)
         else->JSONObject().put("full_name",title.trim()).put("phone",body.trim()).put("notes",contactExtra.trim())
        }
-       api.insert(listOf("news_items","assignments","contacts")[tab],o)
+       if (editingId != null) api.update(listOf("news_items","assignments","contacts")[tab], editingId!!, o) else api.insert(listOf("news_items","assignments","contacts")[tab],o)
       }
       form=false; message="சேமிக்கப்பட்டது"; load()
      } catch(e:Exception){message=e.message ?: "சேமிக்க முடியவில்லை"}
@@ -84,7 +84,7 @@ private data class Entry(val id:String,val title:String,val body:String,val meta
  ) { p ->
   Column(Modifier.fillMaxSize().padding(p).padding(horizontal=16.dp, vertical=10.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
    if(form) {
-    Text(listOf("புதிய செய்தி","புதிய அசைன்மென்ட்","புதிய தொடர்பு")[tab],style=MaterialTheme.typography.headlineSmall)
+    Text(if(editingId != null) "பதிவைத் திருத்து" else listOf("புதிய செய்தி","புதிய அசைன்மென்ட்","புதிய தொடர்பு")[tab],style=MaterialTheme.typography.headlineSmall)
     when(tab) {
      0 -> {
       OutlinedTextField(title,{title=it},Modifier.fillMaxWidth(),label={Text("செய்தித் தலைப்பு")},singleLine=true)
@@ -125,7 +125,15 @@ private data class Entry(val id:String,val title:String,val body:String,val meta
      Text(e.title,style=MaterialTheme.typography.titleMedium)
      if(e.body.isNotBlank())Text(e.body)
      if(e.meta.isNotBlank())Text(e.meta,style=MaterialTheme.typography.labelSmall)
-     if(tab!=2) OutlinedButton(onClick={val s=(if(tab==0)"📰 செய்தி" else "📋 அசைன்மென்ட்")+"\n\n"+e.title+"\n"+e.body;context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"பகிரவும்"))},modifier=Modifier.align(Alignment.End)){Text("பகிர்")}
+     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
+      TextButton(onClick={
+       editingId=e.id; title=e.title; body=e.body; category=e.meta.ifBlank{"general"}
+       if(tab==1) eventDate=e.date
+       if(tab==2) contactExtra=e.meta
+       form=true; message=""
+      }) { Text("திருத்து") }
+      if(tab!=2) OutlinedButton(onClick={val s=(if(tab==0)"📰 செய்தி" else "📋 அசைன்மென்ட்")+"\\n\\n"+e.title+"\\n"+e.body;context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"பகிரவும்"))}){Text("பகிர்")}
+     }
     }}}}
    }
   }
