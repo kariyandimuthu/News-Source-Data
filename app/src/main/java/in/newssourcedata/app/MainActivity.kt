@@ -203,13 +203,21 @@ private val categories = listOf("குற்றம்","விபத்து",
     Text(e.title,style=MaterialTheme.typography.titleMedium)
     if(e.body.isNotBlank()) { val previewBody=if(tab==0||tab==1) e.body.lineSequence().drop(1).joinToString("\n").trim() else e.body; if(previewBody.isNotBlank()) Text(previewBody,maxLines=3,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant) }
     if(e.meta.isNotBlank()) Text(e.meta,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-    if(tab==2) Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-     FilledTonalButton(onClick={val number=e.phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$number")))},contentPadding=PaddingValues(horizontal=12.dp,vertical=4.dp)){Text("☎")}
-     FilledTonalButton(onClick={val number=e.phone.filter{it.isDigit()};context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://wa.me/$number")))},contentPadding=PaddingValues(horizontal=12.dp,vertical=4.dp)){Text("◉",style=MaterialTheme.typography.titleMedium)}
-    } else Row(horizontalArrangement=Arrangement.End,modifier=Modifier.fillMaxWidth()){
-     TextButton(onClick={val s=e.title+"\n\n"+e.body;context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"பகிரவும்"))}){Text("பகிர்")}
-     TextButton(onClick={title=e.title;body=e.body;category=e.meta.ifBlank{"மற்றவை"};editingId=e.id;if(tab==1)eventDate=e.date;form=true;formStep=0}){Text("திருத்து")}
-     TextButton(onClick={deleteTarget=e}){Text("நீக்கு")}
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=androidx.compose.ui.Alignment.Top) {
+     Column(Modifier.weight(1f).clickable { selectedEntry=e },verticalArrangement=Arrangement.spacedBy(5.dp)) {
+      if(e.meta.isNotBlank()) Text(e.meta,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+      if(tab==2) Text(e.phone,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+     }
+     Column(horizontalAlignment=androidx.compose.ui.Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(2.dp)) {
+      if(tab==2) {
+       FilledTonalButton(onClick={val number=e.phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$number")))},modifier=Modifier.size(38.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("☎")}
+       FilledTonalButton(onClick={val number=e.phone.filter{it.isDigit()};context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://wa.me/$number")))},modifier=Modifier.size(38.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("◉")}
+      } else {
+       FilledTonalButton(onClick={val s=e.title+"\n\n"+e.body;context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"பகிரவும்"))},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Icon(Icons.Default.Share,contentDescription="பகிர்",modifier=Modifier.size(17.dp))}
+       FilledTonalButton(onClick={title=e.title;body=e.body;category=e.meta.ifBlank{"மற்றவை"};editingId=e.id;if(tab==1)eventDate=e.date;form=true;formStep=0},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Icon(Icons.Default.Edit,contentDescription="திருத்து",modifier=Modifier.size(17.dp))}
+       FilledTonalButton(onClick={deleteTarget=e},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Icon(Icons.Default.Delete,contentDescription="நீக்கு",modifier=Modifier.size(17.dp))}
+      }
+     }
     }
    }
   }}
