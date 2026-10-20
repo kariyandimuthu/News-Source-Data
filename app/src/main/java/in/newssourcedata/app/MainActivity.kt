@@ -194,33 +194,31 @@ private val categories = listOf("குற்றம்","விபத்து",
    if(page>=pageCount) page=pageCount-1
    val pageRows=visibleRows.drop(page*pageSize).take(pageSize)
    if(visibleRows.isEmpty()&&!busy) Text("பதிவுகள் இல்லை. + பொத்தானைத் தொட்டு சேர்க்கவும்.")
-   LazyColumn(verticalArrangement=Arrangement.spacedBy(0.dp),contentPadding=PaddingValues(bottom=8.dp)){items(pageRows,key={it.id}){e->Column(Modifier.fillMaxWidth().clickable { selectedEntry=e }.padding(vertical=8.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){
-    if(tab==1) Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
-     Text("◷",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
-     Text(e.date.ifBlank{"தேதி இல்லை"} + if(e.startTime.isNotBlank()) "  ${e.startTime}" else "",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
-     if(e.endDate.isNotBlank()||e.endTime.isNotBlank()) Text("→ ${e.endDate.ifBlank{e.date}} ${e.endTime}",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    Text(e.title,style=MaterialTheme.typography.titleMedium)
-    if(e.body.isNotBlank()) { val previewBody=if(tab==0||tab==1) e.body.lineSequence().drop(1).joinToString("\n").trim() else e.body; if(previewBody.isNotBlank()) Text(previewBody,maxLines=3,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant) }
-    if(e.meta.isNotBlank()) Text(e.meta,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=androidx.compose.ui.Alignment.Top) {
+   LazyColumn(verticalArrangement=Arrangement.spacedBy(0.dp),contentPadding=PaddingValues(bottom=8.dp)){items(pageRows,key={it.id}){e->
+    Row(Modifier.fillMaxWidth().padding(vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=androidx.compose.ui.Alignment.Top) {
      Column(Modifier.weight(1f).clickable { selectedEntry=e },verticalArrangement=Arrangement.spacedBy(5.dp)) {
+      if(tab==1) Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+       Text("◷",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
+       Text(e.date.ifBlank{"தேதி இல்லை"} + if(e.startTime.isNotBlank()) "  ${e.startTime}" else "",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
+       if(e.endDate.isNotBlank()||e.endTime.isNotBlank()) Text("→ ${e.endDate.ifBlank{e.date}} ${e.endTime}",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+      }
+      Text(e.title,style=MaterialTheme.typography.titleMedium)
+      if(e.body.isNotBlank()) { val previewBody=if(tab==0||tab==1) e.body.lineSequence().drop(1).joinToString("\\n").trim() else e.body; if(previewBody.isNotBlank()) Text(previewBody,maxLines=3,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant) }
       if(e.meta.isNotBlank()) Text(e.meta,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-      if(tab==2) Text(e.phone,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+      if(tab==2 && e.phone.isNotBlank()) Text(e.phone,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
      }
-     Column(horizontalAlignment=androidx.compose.ui.Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(2.dp)) {
+     Column(horizontalAlignment=androidx.compose.ui.Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)) {
       if(tab==2) {
        FilledTonalButton(onClick={val number=e.phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$number")))},modifier=Modifier.size(38.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("☎")}
        FilledTonalButton(onClick={val number=e.phone.filter{it.isDigit()};context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://wa.me/$number")))},modifier=Modifier.size(38.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("◉")}
       } else {
-       FilledTonalButton(onClick={val s=e.title+"\n\n"+e.body;context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"பகிரவும்"))},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("↗",fontSize=18.sp)}
+       FilledTonalButton(onClick={val s=e.title+"\\n\\n"+e.body;context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"பகிரவும்"))},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("↗",fontSize=18.sp)}
        FilledTonalButton(onClick={title=e.title;body=e.body;category=e.meta.ifBlank{"மற்றவை"};editingId=e.id;if(tab==1)eventDate=e.date;form=true;formStep=0},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("✎",fontSize=18.sp)}
        FilledTonalButton(onClick={deleteTarget=e},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("×",fontSize=20.sp)}
       }
      }
     }
-   }
-  }}
+   }}
   if(pageCount>1) Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center,verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) { (0 until pageCount).forEach { p -> TextButton(onClick={page=p},enabled=p!=page) { Text((p+1).toString(),fontWeight=if(p==page) FontWeight.Bold else FontWeight.Normal) } } }
   }
  }
