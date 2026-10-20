@@ -3,6 +3,8 @@ package `in`.newssourcedata.app
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -42,18 +44,18 @@ private val categories = listOf("குற்றம்","விபத்து",
  var title by remember { mutableStateOf("") }; var body by remember { mutableStateOf("") }
  var district by remember { mutableStateOf("திருநெல்வேலி") }; var department by remember { mutableStateOf("காவல்") }; var category by remember { mutableStateOf("மற்றவை") }
  var eventDate by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())) }
- var eventTime by remember { mutableStateOf("") }; var eventPlace by remember { mutableStateOf("") }
+ var eventTime by remember { mutableStateOf("") }; var eventEndTime by remember { mutableStateOf("") }; var eventEndDate by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())) }; var eventPlace by remember { mutableStateOf("") }
  var contactExtra by remember { mutableStateOf("") }; var search by remember { mutableStateOf("") }
  var rows by remember { mutableStateOf(listOf<Entry>()) }; var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf("") }
  var selectedEntry by remember { mutableStateOf<Entry?>(null) }; var deleteTarget by remember { mutableStateOf<Entry?>(null) }
  fun load() { scope.launch { busy=true; try { rows=withContext(Dispatchers.IO) { val table=listOf("news_items","assignments","contacts")[tab]; val a=api.list(table); (0 until a.length()).map { i -> val o=a.getJSONObject(i); when(tab) { 0->Entry(o.optString("id"),o.optString("headline"),o.optString("body"),o.optString("category"),o.optString("news_date")); 1->{ val d=o.optString("description"); val date=Regex("\\[DATE:([^]]+)]").find(d)?.groupValues?.get(1) ?: ""; Entry(o.optString("id"),o.optString("title"),d.replace(Regex("\\[DATE:[^]]+]\\s*"),"").replace(Regex("\\[TIME:[^]]+]\\s*"),"").replace(Regex("\\[PLACE:[^]]+]\\s*"),""),o.optString("category"),date) }; else->Entry(o.optString("id"),o.optString("full_name"),o.optString("phone"),o.optString("notes"),"",o.optString("phone")) } } }.sortedWith(compareBy<Entry> { if(tab==1) it.date.ifBlank{"9999-99-99"} else "" }.thenByDescending { it.id }); message="" } catch(e:Exception){ message=e.message ?: "தரவைப் பெற முடியவில்லை" }; busy=false } }
- fun clearForm() { editingId=null; title=""; body=""; category="மற்றவை"; department="காவல்"; district="திருநெல்வேலி"; eventDate=SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()); eventTime=""; eventPlace=""; contactExtra=""; formStep=0 }
+ fun clearForm() { editingId=null; title=""; body=""; category="மற்றவை"; department="காவல்"; district="திருநெல்வேலி"; eventDate=SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()); eventTime=""; eventEndTime=""; eventEndDate=eventDate; eventPlace=""; contactExtra=""; formStep=0 }
  fun startEntry(which:Int) { tab=which; clearForm(); form=true; showAddMenu=false; message="" }
  fun saveEntry() { scope.launch { busy=true; message=""; try { withContext(Dispatchers.IO) {
    val did=if(district=="தென்காசி") "6b4aa1b1-3d0c-42c1-ac3b-06f7e123531b" else "0288efc9-030c-4faa-b110-64a318fcc077"
    val o=when(tab) {
     0 -> { val headline=body.lineSequence().firstOrNull()?.trim()?.take(90).orEmpty().ifBlank{"தலைப்பிடப்படாத செய்தி"}; JSONObject().put("headline",headline).put("body",body.trim()).put("category","$department • $category").put("district_id",did) }
-    1 -> { val generatedTitle=body.lineSequence().firstOrNull()?.trim()?.take(90).orEmpty().ifBlank{"நிகழ்ச்சி அசைன்மென்ட்"}; JSONObject().put("title",generatedTitle).put("description","[DATE:$eventDate] [TIME:$eventTime] [PLACE:$eventPlace]\n"+body.trim()).put("category",department).put("district_id",did) }
+    1 -> { val generatedTitle=body.lineSequence().firstOrNull()?.trim()?.take(90).orEmpty().ifBlank{"நிகழ்ச்சி அசைன்மென்ட்"}; JSONObject().put("title",generatedTitle).put("description","[DATE:$eventDate] [STARTTIME:$eventTime] [ENDDATE:$eventEndDate] [ENDTIME:$eventEndTime] [PLACE:$eventPlace]\n"+body.trim()).put("category",department).put("district_id",did) }
     else -> JSONObject().put("full_name",title.trim()).put("phone",body.trim()).put("notes",contactExtra.trim())
    }
    if(editingId!=null) api.update(listOf("news_items","assignments","contacts")[tab],editingId!!,o) else api.insert(listOf("news_items","assignments","contacts")[tab],o)
@@ -106,7 +108,7 @@ private val categories = listOf("குற்றம்","விபத்து",
   if(form) {
    if(tab==0 && formStep==0) {
     Text("செய்தியை முழுமையாக எழுதுங்கள்",style=MaterialTheme.typography.titleLarge)
-    OutlinedTextField(body,{body=it},Modifier.fillMaxWidth().heightIn(min=480.dp),label={Text("செய்தி")},minLines=20,maxLines=200)
+    OutlinedTextField(body,{body=it},Modifier.fillMaxWidth().heightIn(min=560.dp),label={Text("முதல் வரியே தலைப்பு; அடுத்த வரிகளில் செய்தி")},minLines=24,maxLines=300)
    } else if(tab==0) {
     Text(if(formStep==1)"எந்த மாவட்டம்?" else "செய்தித் துறை மற்றும் கேட்டகிரி",style=MaterialTheme.typography.titleLarge)
     if(formStep==1) {
@@ -119,11 +121,13 @@ private val categories = listOf("குற்றம்","விபத்து",
     }
    } else if(tab==1 && formStep==0) {
     Text("அசைன்மென்ட் விவரத்தை எழுதுங்கள்",style=MaterialTheme.typography.titleLarge)
-    OutlinedTextField(body,{body=it},Modifier.fillMaxWidth().heightIn(min=480.dp),label={Text("முழு விவரம்")},minLines=20,maxLines=200)
+    OutlinedTextField(body,{body=it},Modifier.fillMaxWidth().heightIn(min=560.dp),label={Text("முதல் வரியே அசைன்மென்ட் தலைப்பு; அடுத்த வரிகளில் விவரம்")},minLines=24,maxLines=300)
    } else if(tab==1) {
     Text("நிகழ்ச்சி விவரங்கள்",style=MaterialTheme.typography.titleLarge)
-    OutlinedTextField(eventDate,{eventDate=it},Modifier.fillMaxWidth(),label={Text("தேதி (YYYY-MM-DD)")},singleLine=true)
-    OutlinedTextField(eventTime,{eventTime=it},Modifier.fillMaxWidth(),label={Text("நேரம்")},singleLine=true)
+    OutlinedButton(onClick={val cal=java.util.Calendar.getInstance(); DatePickerDialog(context,{_,y,m,d->eventDate=String.format(Locale.US,"%04d-%02d-%02d",y,m+1,d)},cal.get(java.util.Calendar.YEAR),cal.get(java.util.Calendar.MONTH),cal.get(java.util.Calendar.DAY_OF_MONTH)).show()},modifier=Modifier.fillMaxWidth()) { Text("தொடக்க தேதி: $eventDate  📅") }
+    OutlinedButton(onClick={val cal=java.util.Calendar.getInstance(); TimePickerDialog(context,{_,h,m->eventTime=String.format(Locale.US,"%02d:%02d",h,m)},cal.get(java.util.Calendar.HOUR_OF_DAY),cal.get(java.util.Calendar.MINUTE),true).show()},modifier=Modifier.fillMaxWidth()) { Text("ஆரம்ப நேரம்: " + eventTime.ifBlank { "தேர்வு செய்யவும்" } + " 🕒") }
+    OutlinedButton(onClick={val cal=java.util.Calendar.getInstance(); DatePickerDialog(context,{_,y,m,d->eventEndDate=String.format(Locale.US,"%04d-%02d-%02d",y,m+1,d)},cal.get(java.util.Calendar.YEAR),cal.get(java.util.Calendar.MONTH),cal.get(java.util.Calendar.DAY_OF_MONTH)).show()},modifier=Modifier.fillMaxWidth()) { Text("முடிவு தேதி: $eventEndDate  📅") }
+    OutlinedButton(onClick={val cal=java.util.Calendar.getInstance(); TimePickerDialog(context,{_,h,m->eventEndTime=String.format(Locale.US,"%02d:%02d",h,m)},cal.get(java.util.Calendar.HOUR_OF_DAY),cal.get(java.util.Calendar.MINUTE),true).show()},modifier=Modifier.fillMaxWidth()) { Text("முடிவு நேரம்: " + eventEndTime.ifBlank { "தேர்வு செய்யவும்" } + " 🕒") }
     OutlinedTextField(eventPlace,{eventPlace=it},Modifier.fillMaxWidth(),label={Text("இடம் (விருப்பம்)")},singleLine=true)
     Text("மாவட்டம்")
     listOf("திருநெல்வேலி","தென்காசி").forEach{FilterChip(selected=district==it,onClick={district=it},label={Text(it)})}
@@ -144,7 +148,7 @@ private val categories = listOf("குற்றம்","விபத்து",
    LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp),contentPadding=PaddingValues(bottom=12.dp)){items(visibleRows,key={it.id}){e->ElevatedCard(onClick={selectedEntry=e},modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
     if(tab==1&&e.date.isNotBlank()) Text(e.date,style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
     Text(e.title,style=MaterialTheme.typography.titleMedium)
-    if(e.body.isNotBlank()) Text(e.body,maxLines=3,overflow=TextOverflow.Ellipsis)
+    if(e.body.isNotBlank()) { val previewBody=if(tab==0||tab==1) e.body.lineSequence().drop(1).joinToString("\n").trim() else e.body; if(previewBody.isNotBlank()) Text(previewBody,maxLines=3,overflow=TextOverflow.Ellipsis) }
     if(e.meta.isNotBlank()) Text(e.meta,style=MaterialTheme.typography.labelSmall)
     if(tab==2) Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
      TextButton(onClick={val number=e.phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$number")))}){Text("அழை")}
