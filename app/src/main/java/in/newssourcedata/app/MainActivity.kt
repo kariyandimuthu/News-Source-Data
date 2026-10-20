@@ -65,8 +65,25 @@ private val categories = listOf("குற்றம்","விபத்து",
    Text(if(signup) "புதிய கணக்கு உருவாக்கு" else "உள்நுழைக",style=MaterialTheme.typography.headlineSmall)
    OutlinedTextField(email,{email=it},Modifier.fillMaxWidth(),label={Text("மின்னஞ்சல்")},singleLine=true)
    OutlinedTextField(password,{password=it},Modifier.fillMaxWidth(),label={Text("கடவுச்சொல் (குறைந்தது 6 எழுத்துகள்)")},singleLine=true)
-   Button(enabled=!busy&&email.contains("@")&&password.length>=6,onClick={scope.launch { busy=true; try { withContext(Dispatchers.IO){if(signup) api.signUp(email,password) else api.signIn(email,password)}; signed=api.isSignedIn; if(!signed) message="மின்னஞ்சலை உறுதிப்படுத்தி உள்நுழையவும்." } catch(e:Exception){message=e.message ?: "தோல்வி"}; busy=false }},modifier=Modifier.fillMaxWidth()){Text(if(signup)"கணக்கு உருவாக்கு" else "உள்நுழை")}
-   TextButton(onClick={signup=!signup}){Text(if(signup)"உள்நுழைக" else "புதிய கணக்கு உருவாக்கவும்")}
+   Button(enabled=!busy&&email.trim().contains("@")&&password.length>=6,onClick={scope.launch {
+    busy=true; message=""
+    try {
+     withContext(Dispatchers.IO){if(signup) api.signUp(email,password) else api.signIn(email,password)}
+     signed=api.isSignedIn
+     if(!signed) message="மின்னஞ்சல் உறுதிப்படுத்தல் தேவை. உங்கள் மின்னஞ்சலைச் சரிபார்க்கவும்."
+    } catch(e:Exception) {
+     message=when {
+      e is java.net.SocketTimeoutException -> "சேவையகத்துடன் இணைக்க நேரம் முடிந்தது. இணைய இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்."
+      e is java.net.UnknownHostException -> "இணையம் அல்லது Supabase சேவையகத்தை அணுக முடியவில்லை. இணைய இணைப்பைச் சரிபார்க்கவும்."
+      e.message?.contains("Invalid login credentials",true)==true -> "மின்னஞ்சல் அல்லது கடவுச்சொல் தவறாக உள்ளது."
+      else -> e.message?.takeIf{it.isNotBlank()} ?: "உள்நுழைவு தோல்வியடைந்தது. மீண்டும் முயற்சிக்கவும்."
+     }
+    } finally { busy=false }
+   }},modifier=Modifier.fillMaxWidth()){
+    if(busy) { CircularProgressIndicator(Modifier.size(18.dp),strokeWidth=2.dp); Spacer(Modifier.width(8.dp)) }
+    Text(if(busy)"சரிபார்க்கிறது…" else if(signup)"கணக்கு உருவாக்கு" else "உள்நுழை")
+   }
+   TextButton(enabled=!busy,onClick={signup=!signup;message=""}){Text(if(signup)"உள்நுழைக" else "புதிய கணக்கு உருவாக்கவும்")}
    if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.error)
   } }
   return
