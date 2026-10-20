@@ -98,6 +98,28 @@ class SupabaseClient(context: Context) {
 
     fun signOut() { prefs.edit().remove("access_token").remove("refresh_token").remove("email").apply() }
 
+    fun currentProfile(): JSONObject {
+        val response = request("/rest/v1/profiles?select=id,email,display_name,role,approval_status&id=eq.${userId()}&limit=1", "GET")
+        val rows = org.json.JSONArray(response)
+        if (rows.length() == 0) throw IllegalStateException("பயனர் அனுமதி விவரம் கிடைக்கவில்லை. நிர்வாகியைத் தொடர்புகொள்ளவும்.")
+        return rows.getJSONObject(0)
+    }
+
+    private fun userId(): String {
+        val response = request("/auth/v1/user", "GET")
+        val id = JSONObject(response).optString("id")
+        if (id.isBlank()) throw IllegalStateException("பயனர் அடையாளம் கிடைக்கவில்லை")
+        return id
+    }
+
+    fun pendingProfiles(): JSONArray =
+        JSONArray(request("/rest/v1/profiles?select=id,email,display_name,role,approval_status&approval_status=eq.pending&order=created_at.asc", "GET"))
+
+    fun setApproval(userId: String, status: String) {
+        require(status in listOf("approved", "rejected", "revoked"))
+        request("/rest/v1/profiles?id=eq.$userId", "PATCH", JSONObject().put("approval_status", status), prefer = "return=minimal")
+    }
+
     fun list(table: String): JSONArray = JSONArray(request("/rest/v1/$table?select=*&order=created_at.desc", "GET"))
 
     fun insert(table: String, values: JSONObject) {
