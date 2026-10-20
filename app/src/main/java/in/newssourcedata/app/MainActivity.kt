@@ -203,7 +203,7 @@ private val categories = listOf("குற்றம்","விபத்து",
    if(page>=pageCount) page=pageCount-1
    val pageRows=visibleRows.drop(page*pageSize).take(pageSize)
    if(visibleRows.isEmpty()&&!busy) Text("பதிவுகள் இல்லை. + பொத்தானைத் தொட்டு சேர்க்கவும்.")
-   LazyColumn(verticalArrangement=Arrangement.spacedBy(0.dp),contentPadding=PaddingValues(bottom=8.dp)){items(pageRows,key={it.id}){e->
+   LazyColumn(modifier=Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(0.dp),contentPadding=PaddingValues(bottom=8.dp)){items(pageRows,key={it.id}){e->
     Row(Modifier.fillMaxWidth().padding(vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=androidx.compose.ui.Alignment.Top) {
      Column(Modifier.weight(1f).clickable { selectedEntry=e },verticalArrangement=Arrangement.spacedBy(5.dp)) {
       if(tab==1) Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
