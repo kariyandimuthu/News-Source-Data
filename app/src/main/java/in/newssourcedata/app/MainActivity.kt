@@ -27,7 +27,7 @@ class MainActivity : ComponentActivity() {
  override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContent { MaterialTheme { App() } } }
 }
 private data class Entry(val id:String,val title:String,val body:String,val meta:String="",val date:String="")
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3Api::class)
 @Composable private fun App() {
  val context= LocalContext.current
  val api= remember { SupabaseClient(context.applicationContext) }
