@@ -213,9 +213,9 @@ private val categories = listOf("குற்றம்","விபத்து",
        FilledTonalButton(onClick={val number=e.phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$number")))},modifier=Modifier.size(38.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("☎")}
        FilledTonalButton(onClick={val number=e.phone.filter{it.isDigit()};context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://wa.me/$number")))},modifier=Modifier.size(38.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("◉")}
       } else {
-       FilledTonalButton(onClick={val s=e.title+"\n\n"+e.body;context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"பகிரவும்"))},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Icon(Icons.Default.Share,contentDescription="பகிர்",modifier=Modifier.size(17.dp))}
-       FilledTonalButton(onClick={title=e.title;body=e.body;category=e.meta.ifBlank{"மற்றவை"};editingId=e.id;if(tab==1)eventDate=e.date;form=true;formStep=0},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Icon(Icons.Default.Edit,contentDescription="திருத்து",modifier=Modifier.size(17.dp))}
-       FilledTonalButton(onClick={deleteTarget=e},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Icon(Icons.Default.Delete,contentDescription="நீக்கு",modifier=Modifier.size(17.dp))}
+       FilledTonalButton(onClick={val s=e.title+"\n\n"+e.body;context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"பகிரவும்"))},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("↗",fontSize=18.sp)}
+       FilledTonalButton(onClick={title=e.title;body=e.body;category=e.meta.ifBlank{"மற்றவை"};editingId=e.id;if(tab==1)eventDate=e.date;form=true;formStep=0},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("✎",fontSize=18.sp)}
+       FilledTonalButton(onClick={deleteTarget=e},modifier=Modifier.size(36.dp),contentPadding=PaddingValues(0.dp),shape=MaterialTheme.shapes.medium){Text("×",fontSize=20.sp)}
       }
      }
     }
