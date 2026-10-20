@@ -181,7 +181,7 @@ private val categories = listOf("குற்றம்","விபத்து",
  }
  if(selectedEntry!=null) {
   val e=selectedEntry!!
-  AlertDialog(onDismissRequest={selectedEntry=null},title={Text(e.title)},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){if(e.meta.isNotBlank())Text(e.meta); val detailBody=if(tab==0||tab==1) e.body.lineSequence().drop(1).joinToString("\\n").trim() else e.body; Text(detailBody.ifBlank{"விவரங்கள் இல்லை"})}},confirmButton={TextButton(onClick={selectedEntry=null}){Text("மூடு")}},dismissButton={TextButton(onClick={
+  AlertDialog(onDismissRequest={selectedEntry=null},title={Text(e.title)},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){if(e.meta.isNotBlank())Text(e.meta); val detailBody=if(tab==0||tab==1) e.body.lineSequence().drop(1).joinToString("\n").trim() else e.body; Text(detailBody.ifBlank{"விவரங்கள் இல்லை"})}},confirmButton={TextButton(onClick={selectedEntry=null}){Text("மூடு")}},dismissButton={TextButton(onClick={
    title=e.title; body=e.body; category=e.meta.ifBlank{"மற்றவை"}; editingId=e.id
    if(tab==2) contactExtra=e.meta
    if(tab==1) eventDate=e.date
