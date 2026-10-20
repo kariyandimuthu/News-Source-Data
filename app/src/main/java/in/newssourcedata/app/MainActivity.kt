@@ -2,6 +2,11 @@ package `in`.newssourcedata.app
 
 import android.content.Intent
 import android.app.Activity
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import android.net.Uri
 import android.os.Bundle
 import android.app.DatePickerDialog
@@ -66,6 +71,19 @@ private val categories = listOf("குற்றம்","விபத்து",
  var rows by remember { mutableStateOf(listOf<Entry>()) }; var page by remember { mutableIntStateOf(0) }; var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf("") }
  var selectedEntry by remember { mutableStateOf<Entry?>(null) }; var deleteTarget by remember { mutableStateOf<Entry?>(null) }
  var sharedDraft by remember { mutableStateOf((context as? Activity)?.intent?.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty()) }
+ var lastClipboardText by remember { mutableStateOf("") }
+ val lifecycleOwner=LocalLifecycleOwner.current
+ DisposableEffect(lifecycleOwner) {
+  val observer=LifecycleEventObserver { _, event ->
+   if(event==Lifecycle.Event.ON_RESUME && signed) {
+    val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    val clipText=if(clipboard.hasPrimaryClip() && clipboard.primaryClipDescription?.hasMimeType("text/plain")==true) clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()?.trim().orEmpty() else ""
+    if(clipText.isNotBlank() && clipText!=lastClipboardText && clipText!=sharedDraft) { sharedDraft=clipText }
+   }
+  }
+  lifecycleOwner.lifecycle.addObserver(observer)
+  onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+ }
  fun load() { scope.launch { busy=true; try { rows=withContext(Dispatchers.IO) { val table=listOf("news_items","assignments","contacts")[tab]; val a=api.list(table); (0 until a.length()).mapNotNull { i -> val o=a.getJSONObject(i); when(tab) { 0->Entry(o.optString("id"),o.optString("headline"),o.optString("body"),o.optString("category"),o.optString("news_date")); 1->{ val d=o.optString("description"); val date=Regex("\\[DATE:([^]]+)]").find(d)?.groupValues?.get(1) ?: ""; val startTime=Regex("\\[STARTTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: Regex("\\[TIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val endDate=Regex("\\[ENDDATE:([^]]*)]").find(d)?.groupValues?.get(1) ?: date; val endTime=Regex("\\[ENDTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val expired=try { if(endDate.isNotBlank()&&endTime.isNotBlank()) { val end=SimpleDateFormat("yyyy-MM-dd HH:mm",Locale.US).parse("$endDate $endTime"); end!=null && end.before(Date()) } else false } catch(_:Exception){false}; val id=o.optString("id"); if(expired) { try { api.delete("assignments",id) } catch(_:Exception) { }; null } else { val clean=d.replace(Regex("\\[(DATE|TIME|STARTTIME|ENDDATE|ENDTIME|PLACE):[^]]*]\\s*"),"").replace(Regex("\\\\+n"),"\n").replace("\\n","\n").trim(); Entry(id,o.optString("title"),clean,o.optString("category"),date,"",startTime,endDate,endTime) } }; else->Entry(o.optString("id"),o.optString("full_name"),o.optString("phone"),o.optString("notes"),"",o.optString("phone")) } } }.sortedWith(compareByDescending<Entry> { it.date.ifBlank{"0000-00-00"} }.thenByDescending { it.id }); message="" } catch(e:Exception){ message=e.message ?: "தரவைப் பெற முடியவில்லை" }; busy=false } }
  fun clearForm() { editingId=null; title=""; body=""; category="மற்றவை"; customCategory=""; department="காவல்"; district="திருநெல்வேலி"; eventDate=SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()); eventTime=""; eventEndTime=""; eventEndDate=eventDate; eventPlace=""; contactExtra=""; formStep=0 }
  fun startEntry(which:Int) { tab=which; clearForm(); form=true; showAddMenu=false; message="" }
@@ -118,7 +136,7 @@ private val categories = listOf("குற்றம்","விபத்து",
   bottomBar={if(!form) NavigationBar(containerColor=MaterialTheme.colorScheme.surface, tonalElevation=8.dp) { listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்").forEachIndexed{i,l->NavigationBarItem(selected=tab==i,onClick={tab=i;form=false;search="";selectedDate="";selectedCategory="அனைத்தும்"},icon={Text(listOf("▤","▦","♧")[i],style=MaterialTheme.typography.titleLarge,fontWeight=if(tab==i) FontWeight.Bold else FontWeight.Normal)},label={Text(l,style=MaterialTheme.typography.labelMedium)})} }},
   floatingActionButton={if(form) FloatingActionButton(onClick={if(!busy && (if(tab==0) body.isNotBlank() else if(tab==1) body.isNotBlank() && (formStep==0 || (eventTime.isNotBlank() && eventEndTime.isNotBlank())) else title.isNotBlank()&&body.isNotBlank())) { if(tab==0&&formStep==0) formStep=1 else if(tab==1&&formStep==0) formStep=1 else if(tab==0&&formStep==1) formStep=2 else saveEntry() }}){Text(if(busy)"…" else "✓",style=MaterialTheme.typography.titleLarge)} else FloatingActionButton(onClick={showAddMenu=true}){Text("+",style=MaterialTheme.typography.headlineMedium)}}
  ) { p ->
- if(signed && sharedDraft.isNotBlank() && !form) AlertDialog(onDismissRequest={sharedDraft=""},title={Text("பகிரப்பட்ட உரை கிடைத்துள்ளது")},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){Text("இந்த உரையை எதற்காகச் சேமிக்க வேண்டும்?");Text(sharedDraft.take(350),maxLines=6,overflow=TextOverflow.Ellipsis)}},confirmButton={Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){TextButton(onClick={val draft=sharedDraft;sharedDraft="";startEntry(0);body=draft}){Text("செய்தியாகச் சேர்")};TextButton(onClick={val draft=sharedDraft;sharedDraft="";startEntry(1);body=draft}){Text("அசைன்மென்ட்டாகச் சேர்")}}},dismissButton={TextButton(onClick={sharedDraft=""}){Text("பின்னர்")}})
+ if(signed && sharedDraft.isNotBlank() && !form) AlertDialog(onDismissRequest={lastClipboardText=sharedDraft;sharedDraft=""},title={Text("நகலெடுத்த உரை கிடைத்துள்ளது")},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){Text("இந்த உரையை எதற்காகச் சேமிக்க வேண்டும்?");Text(sharedDraft.take(350),maxLines=6,overflow=TextOverflow.Ellipsis)}},confirmButton={Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){TextButton(onClick={val draft=sharedDraft;lastClipboardText=draft;sharedDraft="";startEntry(0);body=draft}){Text("செய்தியாகச் சேர்")};TextButton(onClick={val draft=sharedDraft;lastClipboardText=draft;sharedDraft="";startEntry(1);body=draft}){Text("அசைன்மென்ட்டாகச் சேர்")}}},dismissButton={TextButton(onClick={lastClipboardText=sharedDraft;sharedDraft=""}){Text("பின்னர்")}})
  if(showAddMenu) AlertDialog(onDismissRequest={showAddMenu=false},title={Text("புதிய பதிவு")},text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){listOf("புதிய செய்தி","புதிய அசைன்மென்ட்","புதிய தொடர்பு").forEachIndexed{i,l->OutlinedButton(onClick={startEntry(i)},modifier=Modifier.fillMaxWidth()){Text(l)}}}},confirmButton={TextButton(onClick={showAddMenu=false}){Text("மூடு")}})
  Column((if(form) Modifier.fillMaxSize().padding(p).padding(horizontal=16.dp,vertical=8.dp).verticalScroll(rememberScrollState()) else Modifier.fillMaxSize().padding(p).padding(horizontal=16.dp,vertical=10.dp)),verticalArrangement=Arrangement.spacedBy(12.dp)) {
   if(form) {
