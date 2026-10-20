@@ -81,11 +81,10 @@ private data class Entry(val id:String,val title:String,val body:String,val meta
    NavigationBar { listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்").forEachIndexed{i,l->NavigationBarItem(selected=tab==i,onClick={tab=i;form=false;search=""},icon={Text(listOf("📰","📋","☎")[i])},label={Text(l)})} }
   }},
   floatingActionButton={if(!form) FloatingActionButton(onClick={showAddMenu=true}){Text("+",style=MaterialTheme.typography.headlineMedium)}}
- )
+ ) { p ->
  if(showAddMenu) {
   AlertDialog(onDismissRequest={showAddMenu=false},title={Text("புதிய பதிவு")},text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)) { listOf("செய்தி சேர்க்க","அசைன்மென்ட் சேர்க்க","தொடர்பு சேர்க்க").forEachIndexed { i, label -> OutlinedButton(onClick={tab=i;clearForm();form=true;showAddMenu=false},modifier=Modifier.fillMaxWidth().heightIn(min=56.dp)){Text(label)} } }},confirmButton={TextButton(onClick={showAddMenu=false}){Text("மூடு")}})
  }
- { p ->
   Column((if(form) Modifier.fillMaxSize().padding(p).padding(horizontal=16.dp, vertical=8.dp).verticalScroll(rememberScrollState()) else Modifier.fillMaxSize().padding(p).padding(horizontal=16.dp, vertical=10.dp)),verticalArrangement=Arrangement.spacedBy(10.dp)) {
    if(form) {
     Text(if(editingId != null) "பதிவைத் திருத்து" else listOf("புதிய செய்தி","புதிய அசைன்மென்ட்","புதிய தொடர்பு")[tab],style=MaterialTheme.typography.headlineSmall)
