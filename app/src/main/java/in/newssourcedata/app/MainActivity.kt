@@ -240,6 +240,7 @@ private val categories = listOf("குற்றம்","விபத்து",
  if(deleteTarget!=null) AlertDialog(onDismissRequest={deleteTarget=null},title={Text("பதிவை நீக்கவா?")},text={Text("இந்தப் பதிவு நீக்கப்படும். இந்தச் செயலைத் திரும்பப் பெற முடியாது.")},confirmButton={TextButton(onClick={val e=deleteTarget!!;deleteTarget=null;scope.launch{busy=true;try{withContext(Dispatchers.IO){api.delete(listOf("news_items","assignments","contacts")[tab],e.id)};message="நீக்கப்பட்டது";load()}catch(ex:Exception){message=ex.message ?: "நீக்க முடியவில்லை"};busy=false}}){Text("நீக்கு")}},dismissButton={TextButton(onClick={deleteTarget=null}){Text("ரத்து")}})
 }
 
+}
 
 @Composable
 private fun PremiumMonthCalendar(year:Int, month:Int, selectedDate:String, entries:List<Entry>, onSelect:(String)->Unit, onMonthChange:(Int)->Unit, onAdd:()->Unit) {
