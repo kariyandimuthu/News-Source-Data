@@ -20,6 +20,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -49,6 +54,7 @@ private val categories = listOf("குற்றம்","விபத்து",
  var eventDate by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())) }
  var eventTime by remember { mutableStateOf("") }; var eventEndTime by remember { mutableStateOf("") }; var eventEndDate by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())) }; var eventPlace by remember { mutableStateOf("") }
  var contactExtra by remember { mutableStateOf("") }; var search by remember { mutableStateOf("") }; var selectedDate by remember { mutableStateOf("") }; var selectedCategory by remember { mutableStateOf("அனைத்தும்") }
+ var calendarMonth by remember { mutableIntStateOf(java.util.Calendar.getInstance().get(java.util.Calendar.MONTH)) }; var calendarYear by remember { mutableIntStateOf(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)) }; var calendarDay by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())) }
  var rows by remember { mutableStateOf(listOf<Entry>()) }; var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf("") }
  var selectedEntry by remember { mutableStateOf<Entry?>(null) }; var deleteTarget by remember { mutableStateOf<Entry?>(null) }
  fun load() { scope.launch { busy=true; try { rows=withContext(Dispatchers.IO) { val table=listOf("news_items","assignments","contacts")[tab]; val a=api.list(table); (0 until a.length()).mapNotNull { i -> val o=a.getJSONObject(i); when(tab) { 0->Entry(o.optString("id"),o.optString("headline"),o.optString("body"),o.optString("category"),o.optString("news_date")); 1->{ val d=o.optString("description"); val date=Regex("\\[DATE:([^]]+)]").find(d)?.groupValues?.get(1) ?: ""; val startTime=Regex("\\[STARTTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: Regex("\\[TIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val endDate=Regex("\\[ENDDATE:([^]]*)]").find(d)?.groupValues?.get(1) ?: date; val endTime=Regex("\\[ENDTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val expired=try { if(endDate.isNotBlank()&&endTime.isNotBlank()) { val end=SimpleDateFormat("yyyy-MM-dd HH:mm",Locale.US).parse("$endDate $endTime"); end!=null && end.before(Date()) } else false } catch(_:Exception){false}; val id=o.optString("id"); if(expired) { try { api.delete("assignments",id) } catch(_:Exception) { }; null } else { val clean=d.replace(Regex("\\[(DATE|TIME|STARTTIME|ENDDATE|ENDTIME|PLACE):[^]]*]\\s*"),"").trim(); Entry(id,o.optString("title"),clean,o.optString("category"),date,"",startTime,endDate,endTime) } }; else->Entry(o.optString("id"),o.optString("full_name"),o.optString("phone"),o.optString("notes"),"",o.optString("phone")) } } }.sortedWith(compareBy<Entry> { if(tab==1) it.date.ifBlank{"9999-99-99"} else "" }.thenByDescending { it.id }); message="" } catch(e:Exception){ message=e.message ?: "தரவைப் பெற முடியவில்லை" }; busy=false } }
@@ -136,6 +142,7 @@ private val categories = listOf("குற்றம்","விபத்து",
    if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.error)
   } else {
    Text(listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்")[tab],style=MaterialTheme.typography.headlineSmall)
+   if(tab==1) PremiumMonthCalendar(year=calendarYear,month=calendarMonth,selectedDate=calendarDay,entries=rows,onSelect={calendarDay=it;selectedDate=it},onMonthChange={delta-> val cal=java.util.Calendar.getInstance(); cal.set(calendarYear,calendarMonth,1); cal.add(java.util.Calendar.MONTH,delta); calendarYear=cal.get(java.util.Calendar.YEAR); calendarMonth=cal.get(java.util.Calendar.MONTH) },onAdd={startEntry(1);eventDate=calendarDay;eventEndDate=calendarDay})
    Surface(color=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.55f),shape=MaterialTheme.shapes.extraLarge,modifier=Modifier.fillMaxWidth()) {
     Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=13.dp),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
      Text("⌕",style=MaterialTheme.typography.headlineSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -181,4 +188,51 @@ private val categories = listOf("குற்றம்","விபத்து",
   }){Text("திருத்து")}})
  }
  if(deleteTarget!=null) AlertDialog(onDismissRequest={deleteTarget=null},title={Text("பதிவை நீக்கவா?")},text={Text("இந்தப் பதிவு நீக்கப்படும். இந்தச் செயலைத் திரும்பப் பெற முடியாது.")},confirmButton={TextButton(onClick={val e=deleteTarget!!;deleteTarget=null;scope.launch{busy=true;try{withContext(Dispatchers.IO){api.delete(listOf("news_items","assignments","contacts")[tab],e.id)};message="நீக்கப்பட்டது";load()}catch(ex:Exception){message=ex.message ?: "நீக்க முடியவில்லை"};busy=false}}){Text("நீக்கு")}},dismissButton={TextButton(onClick={deleteTarget=null}){Text("ரத்து")}})
+}
+
+
+@Composable
+private fun PremiumMonthCalendar(year:Int, month:Int, selectedDate:String, entries:List<Entry>, onSelect:(String)->Unit, onMonthChange:(Int)->Unit, onAdd:()->Unit) {
+ val cal=java.util.Calendar.getInstance()
+ cal.set(year,month,1)
+ val days=cal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+ val offset=(cal.get(java.util.Calendar.DAY_OF_WEEK)+5)%7
+ val monthName=SimpleDateFormat("MMMM yyyy", Locale("ta","IN")).format(cal.time)
+ val eventDates=entries.mapNotNull { it.date.takeIf { d -> d.isNotBlank() } }.toSet()
+ Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+  Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+   Column { Text("நிகழ்ச்சி காலண்டர்",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold); Text(monthName,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant) }
+   Row { IconButton(onClick={onMonthChange(-1)}){Text("‹",style=MaterialTheme.typography.headlineMedium)}; IconButton(onClick={onMonthChange(1)}){Text("›",style=MaterialTheme.typography.headlineMedium)} }
+  }
+  Row(Modifier.fillMaxWidth()) { listOf("தி","செ","பு","வி","வெ","ச","ஞா").forEach { Text(it,Modifier.weight(1f),textAlign=TextAlign.Center,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
+  val cellCount=((offset+days+6)/7)*7
+  for(week in 0 until cellCount/7) {
+   Row(Modifier.fillMaxWidth()) {
+    for(col in 0..6) {
+     val day=week*7+col-offset+1
+     Box(Modifier.weight(1f).height(40.dp),contentAlignment=androidx.compose.ui.Alignment.Center) {
+      if(day in 1..days) {
+       val date=String.format(Locale.US,"%04d-%02d-%02d",year,month+1,day)
+       val chosen=date==selectedDate
+       Surface(onClick={onSelect(date)},shape=MaterialTheme.shapes.large,color=if(chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,contentColor=if(chosen) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface) {
+        Column(Modifier.fillMaxSize(),horizontalAlignment=androidx.compose.ui.Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
+         Text(day.toString(),style=MaterialTheme.typography.bodyMedium,fontWeight=if(chosen) FontWeight.Bold else FontWeight.Normal)
+         if(date in eventDates) Box(Modifier.size(4.dp)) { Surface(Modifier.fillMaxSize(),shape=MaterialTheme.shapes.small,color=if(chosen) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.tertiary){} }
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+  Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+   Column { Text("தேர்ந்தெடுத்த தேதி",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant); Text(selectedDate,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold) }
+   Button(onClick=onAdd,contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)){Text("+ நிகழ்ச்சி")}
+  }
+  val dayEntries=entries.filter{it.date==selectedDate}
+  if(dayEntries.isNotEmpty()) {
+   Text("இந்த நாளின் நிகழ்வுகள்",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.onSurfaceVariant)
+   dayEntries.forEach { e -> Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)) { Text(e.startTime.ifBlank{"—"},style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary); Column(Modifier.weight(1f)) { Text(e.title,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.SemiBold); Text("முடிவு: ${e.endDate.ifBlank{e.date}} ${e.endTime}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant) } } }
+  } else Text("இந்த நாளில் நிகழ்வுகள் இல்லை",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+ }
 }
