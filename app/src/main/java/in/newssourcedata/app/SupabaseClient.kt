@@ -69,4 +69,8 @@ class SupabaseClient(context: Context) {
     fun update(table: String, id: String, values: JSONObject) {
         request("/rest/v1/$table?id=eq.$id", "PATCH", values, prefer = "return=minimal")
     }
+
+    fun delete(table: String, id: String) {
+        request("/rest/v1/$table?id=eq.$id", "DELETE", prefer = "return=minimal")
+    }
 }
