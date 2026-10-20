@@ -1,6 +1,7 @@
 package `in`.newssourcedata.app
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,9 +12,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -26,119 +27,128 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
  override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContent { MaterialTheme { App() } } }
 }
-private data class Entry(val id:String,val title:String,val body:String,val meta:String="",val date:String="")
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3Api::class)
+private data class Entry(val id:String,val title:String,val body:String,val meta:String="",val date:String="",val phone:String="")
+private val departments = listOf("காவல்","கோயில்","காலநிலை","கல்வி","மருத்துவம்","அரசியல்","உள்ளாட்சி","விபத்து","பொது")
+private val categories = listOf("குற்றம்","விபத்து","செய்தியாளர் சந்திப்பு","அரசு அறிவிப்பு","நிகழ்ச்சி","மக்கள் பிரச்சினை","மற்றவை")
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun App() {
- val context= LocalContext.current
+ val context=LocalContext.current
  val api= remember { SupabaseClient(context.applicationContext) }
  val scope= rememberCoroutineScope()
  var signed by remember { mutableStateOf(api.isSignedIn) }
  var email by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }; var signup by remember { mutableStateOf(false) }
- var tab by remember { mutableIntStateOf(0) }; var form by remember { mutableStateOf(false) }; var editingId by remember { mutableStateOf<String?>(null) }; var showAddMenu by remember { mutableStateOf(false) }
+ var tab by remember { mutableIntStateOf(0) }; var form by remember { mutableStateOf(false) }; var formStep by remember { mutableIntStateOf(0) }
+ var editingId by remember { mutableStateOf<String?>(null) }; var showAddMenu by remember { mutableStateOf(false) }
  var title by remember { mutableStateOf("") }; var body by remember { mutableStateOf("") }
- var district by remember { mutableStateOf("Tirunelveli") }; var category by remember { mutableStateOf("general") }
+ var district by remember { mutableStateOf("திருநெல்வேலி") }; var department by remember { mutableStateOf("காவல்") }; var category by remember { mutableStateOf("மற்றவை") }
  var eventDate by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())) }
  var eventTime by remember { mutableStateOf("") }; var eventPlace by remember { mutableStateOf("") }
  var contactExtra by remember { mutableStateOf("") }; var search by remember { mutableStateOf("") }
  var rows by remember { mutableStateOf(listOf<Entry>()) }; var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf("") }
- fun load() { scope.launch { busy=true; try { rows=withContext(Dispatchers.IO) { val table=listOf("news_items","assignments","contacts")[tab]; val a=api.list(table); (0 until a.length()).map { i -> val o=a.getJSONObject(i); when(tab) { 0->Entry(o.optString("id"),o.optString("headline"),o.optString("body"),o.optString("category"),o.optString("news_date")); 1-> { val d=o.optString("description"); val date=Regex("\\[DATE:([^]]+)]").find(d)?.groupValues?.get(1) ?: ""; Entry(o.optString("id"),o.optString("title"),d.replace(Regex("\\[DATE:[^]]+]\\s*"),"").replace(Regex("\\[TIME:[^]]+]\\s*"),"").replace(Regex("\\[PLACE:[^]]+]\\s*"),""),o.optString("category"),date) }; else->Entry(o.optString("id"),o.optString("full_name"),o.optString("phone"),o.optString("notes")) } } }.sortedWith(compareBy<Entry> { if(tab==1) it.date.ifBlank{"9999-99-99"} else "" }.thenByDescending { it.id }); message="" } catch(e:Exception){ message=e.message ?: "தரவைப் பெற முடியவில்லை" }; busy=false } }
- fun clearForm() { editingId=null; title=""; body=""; category="general"; eventDate=SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()); eventTime=""; eventPlace=""; contactExtra="" }
+ var selectedEntry by remember { mutableStateOf<Entry?>(null) }; var deleteTarget by remember { mutableStateOf<Entry?>(null) }
+ fun load() { scope.launch { busy=true; try { rows=withContext(Dispatchers.IO) { val table=listOf("news_items","assignments","contacts")[tab]; val a=api.list(table); (0 until a.length()).map { i -> val o=a.getJSONObject(i); when(tab) { 0->Entry(o.optString("id"),o.optString("headline"),o.optString("body"),o.optString("category"),o.optString("news_date")); 1->{ val d=o.optString("description"); val date=Regex("\\[DATE:([^]]+)]").find(d)?.groupValues?.get(1) ?: ""; Entry(o.optString("id"),o.optString("title"),d.replace(Regex("\\[DATE:[^]]+]\\s*"),"").replace(Regex("\\[TIME:[^]]+]\\s*"),"").replace(Regex("\\[PLACE:[^]]+]\\s*"),""),o.optString("category"),date) }; else->Entry(o.optString("id"),o.optString("full_name"),o.optString("phone"),o.optString("notes"),"",o.optString("phone")) } } }.sortedWith(compareBy<Entry> { if(tab==1) it.date.ifBlank{"9999-99-99"} else "" }.thenByDescending { it.id }); message="" } catch(e:Exception){ message=e.message ?: "தரவைப் பெற முடியவில்லை" }; busy=false } }
+ fun clearForm() { editingId=null; title=""; body=""; category="மற்றவை"; department="காவல்"; district="திருநெல்வேலி"; eventDate=SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()); eventTime=""; eventPlace=""; contactExtra=""; formStep=0 }
+ fun startEntry(which:Int) { tab=which; clearForm(); form=true; showAddMenu=false; message="" }
+ fun saveEntry() { scope.launch { busy=true; message=""; try { withContext(Dispatchers.IO) {
+   val did=if(district=="தென்காசி") "6b4aa1b1-3d0c-42c1-ac3b-06f7e123531b" else "0288efc9-030c-4faa-b110-64a318fcc077"
+   val o=when(tab) {
+    0 -> { val headline=body.lineSequence().firstOrNull()?.trim()?.take(90).orEmpty().ifBlank{"தலைப்பிடப்படாத செய்தி"}; JSONObject().put("headline",headline).put("body",body.trim()).put("category","$department • $category").put("district_id",did) }
+    1 -> { val generatedTitle=body.lineSequence().firstOrNull()?.trim()?.take(90).orEmpty().ifBlank{"நிகழ்ச்சி அசைன்மென்ட்"}; JSONObject().put("title",generatedTitle).put("description","[DATE:$eventDate] [TIME:$eventTime] [PLACE:$eventPlace]\n"+body.trim()).put("category",department).put("district_id",did) }
+    else -> JSONObject().put("full_name",title.trim()).put("phone",body.trim()).put("notes",contactExtra.trim())
+   }
+   if(editingId!=null) api.update(listOf("news_items","assignments","contacts")[tab],editingId!!,o) else api.insert(listOf("news_items","assignments","contacts")[tab],o)
+  }; form=false; formStep=0; message="சேமிக்கப்பட்டது"; load()
+ } catch(e:Exception){message=e.message ?: "சேமிக்க முடியவில்லை"}; busy=false } }
  LaunchedEffect(signed,tab) { if(signed) load() }
  if(!signed) {
-  Scaffold(topBar={TopAppBar(title={Text("News Source Data")})}) { p-> Column(Modifier.fillMaxSize().padding(p).padding(20.dp), verticalArrangement=Arrangement.spacedBy(12.dp)) {
-   Text(if(signup) "புதிய கணக்கு உருவாக்கு" else "உள்நுழைக", style=MaterialTheme.typography.headlineSmall)
+  Scaffold(topBar={TopAppBar(title={Text("News Source Data")})}) { p-> Column(Modifier.fillMaxSize().padding(p).padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+   Text(if(signup) "புதிய கணக்கு உருவாக்கு" else "உள்நுழைக",style=MaterialTheme.typography.headlineSmall)
    OutlinedTextField(email,{email=it},Modifier.fillMaxWidth(),label={Text("மின்னஞ்சல்")},singleLine=true)
    OutlinedTextField(password,{password=it},Modifier.fillMaxWidth(),label={Text("கடவுச்சொல் (குறைந்தது 6 எழுத்துகள்)")},singleLine=true)
-   Button(enabled=!busy && email.contains("@") && password.length>=6,onClick={scope.launch { busy=true; message=""; try { withContext(Dispatchers.IO) { if(signup) api.signUp(email,password) else api.signIn(email,password) }; signed=api.isSignedIn; if(!signed) message="கணக்கு உருவாக்கப்பட்டது. மின்னஞ்சலை உறுதிப்படுத்தி உள்நுழையவும்." } catch(e:Exception){message=e.message ?: "தோல்வி"}; busy=false }},modifier=Modifier.fillMaxWidth()){Text(if(busy) "செயல்படுகிறது…" else if(signup) "கணக்கு உருவாக்கு" else "உள்நுழை")}
-   TextButton(onClick={signup=!signup;message=""}){Text(if(signup) "ஏற்கெனவே கணக்கு உள்ளதா? உள்நுழைக" else "புதிய கணக்கு உருவாக்கவும்")}
+   Button(enabled=!busy&&email.contains("@")&&password.length>=6,onClick={scope.launch { busy=true; try { withContext(Dispatchers.IO){if(signup) api.signUp(email,password) else api.signIn(email,password)}; signed=api.isSignedIn; if(!signed) message="மின்னஞ்சலை உறுதிப்படுத்தி உள்நுழையவும்." } catch(e:Exception){message=e.message ?: "தோல்வி"}; busy=false }},modifier=Modifier.fillMaxWidth()){Text(if(signup)"கணக்கு உருவாக்கு" else "உள்நுழை")}
+   TextButton(onClick={signup=!signup}){Text(if(signup)"உள்நுழைக" else "புதிய கணக்கு உருவாக்கவும்")}
    if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.error)
   } }
   return
  }
  Scaffold(
-  topBar={TopAppBar(title={Text("News Source Data")},actions={if(!form) TextButton(onClick={load()}){Text("புதுப்பி")}; TextButton(onClick={api.signOut();signed=false}){Text("வெளியேறு")}})},
-  bottomBar={if(form) {
-   Surface(tonalElevation=3.dp) { Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-    OutlinedButton(onClick={form=false},modifier=Modifier.weight(1f).heightIn(min=52.dp)){Text("ரத்து")}
-    Button(enabled=!busy&&title.isNotBlank(),onClick={scope.launch {
-     busy=true; message=""
-     try {
-      withContext(Dispatchers.IO) {
-       val did=if(district=="Tenkasi") "6b4aa1b1-3d0c-42c1-ac3b-06f7e123531b" else "0288efc9-030c-4faa-b110-64a318fcc077"
-       val o=when(tab) {
-        0->JSONObject().put("headline",title.trim()).put("body",body.trim()).put("category",category.ifBlank{"general"}).put("district_id",did)
-        1->JSONObject().put("title",title.trim()).put("description","[DATE:$eventDate] [TIME:$eventTime] [PLACE:$eventPlace]\n"+body.trim()).put("category",category.ifBlank{"general"}).put("district_id",did)
-        else->JSONObject().put("full_name",title.trim()).put("phone",body.trim()).put("notes",contactExtra.trim())
-       }
-       if (editingId != null) api.update(listOf("news_items","assignments","contacts")[tab], editingId!!, o) else api.insert(listOf("news_items","assignments","contacts")[tab],o)
-      }
-      form=false; message="சேமிக்கப்பட்டது"; load()
-     } catch(e:Exception){message=e.message ?: "சேமிக்க முடியவில்லை"}
-     busy=false
-    } },modifier=Modifier.weight(2f).heightIn(min=52.dp)){Text(if(busy)"சேமிக்கிறது…" else "சேமி")}
-   } }
-  } else {
-   NavigationBar { listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்").forEachIndexed{i,l->NavigationBarItem(selected=tab==i,onClick={tab=i;form=false;search=""},icon={Text(listOf("📰","📋","☎")[i])},label={Text(l)})} }
-  }},
-  floatingActionButton={if(!form) FloatingActionButton(onClick={showAddMenu=true}){Text("+",style=MaterialTheme.typography.headlineMedium)}}
+  topBar={TopAppBar(title={Text(if(form) listOf("புதிய செய்தி","புதிய அசைன்மென்ட்","புதிய தொடர்பு")[tab] else "News Source Data")},actions={if(!form) TextButton(onClick={load()}){Text("புதுப்பி")}; TextButton(onClick={api.signOut();signed=false}){Text("வெளியேறு")}})},
+  bottomBar={if(form) Surface(tonalElevation=3.dp){Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)){
+   OutlinedButton(onClick={form=false;formStep=0},modifier=Modifier.weight(1f).heightIn(min=52.dp)){Text("ரத்து")}
+   Button(enabled=!busy && (if(tab==0||tab==1) body.isNotBlank() else title.isNotBlank()&&body.isNotBlank()),onClick={
+    if(tab==0 && formStep==0) formStep=1
+    else if(tab==1 && formStep==0) formStep=1
+    else if(tab==0 && formStep==1) formStep=2
+    else saveEntry()
+   },modifier=Modifier.weight(2f).heightIn(min=52.dp)){Text(if(busy)"சேமிக்கிறது…" else when {tab==0&&formStep==0->"Submit";tab==0&&formStep==1->"அடுத்து";tab==1&&formStep==0->"Submit";else->"சேமி"})}
+  }} else NavigationBar { listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்").forEachIndexed{i,l->NavigationBarItem(selected=tab==i,onClick={tab=i;form=false;search=""},icon={Text(listOf("📰","📋","☎")[i])},label={Text(l)})} }},
+  floatingActionButton={if(!form) FloatingActionButton(onClick={showAddMenu=true){Text("+",style=MaterialTheme.typography.headlineMedium)}}
  ) { p ->
- if(showAddMenu) {
-  AlertDialog(onDismissRequest={showAddMenu=false},title={Text("புதிய பதிவு")},text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)) { listOf("செய்தி சேர்க்க","அசைன்மென்ட் சேர்க்க","தொடர்பு சேர்க்க").forEachIndexed { i, label -> OutlinedButton(onClick={tab=i;clearForm();form=true;showAddMenu=false},modifier=Modifier.fillMaxWidth().heightIn(min=56.dp)){Text(label)} } }},confirmButton={TextButton(onClick={showAddMenu=false}){Text("மூடு")}})
- }
-  Column((if(form) Modifier.fillMaxSize().padding(p).padding(horizontal=16.dp, vertical=8.dp).verticalScroll(rememberScrollState()) else Modifier.fillMaxSize().padding(p).padding(horizontal=16.dp, vertical=10.dp)),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-   if(form) {
-    Text(if(editingId != null) "பதிவைத் திருத்து" else listOf("புதிய செய்தி","புதிய அசைன்மென்ட்","புதிய தொடர்பு")[tab],style=MaterialTheme.typography.headlineSmall)
-    when(tab) {
-     0 -> {
-      OutlinedTextField(title,{title=it},Modifier.fillMaxWidth(),label={Text("செய்தித் தலைப்பு")},singleLine=true)
-      OutlinedTextField(body,{body=it},Modifier.fillMaxWidth().heightIn(min=360.dp),label={Text("முழுச் செய்தியை இங்கே எழுதுங்கள்")},minLines=16,maxLines=100)
-      Text("கூடுதல் விவரங்கள்",style=MaterialTheme.typography.titleMedium)
-      OutlinedTextField(category,{category=it},Modifier.fillMaxWidth(),label={Text("செய்தி வகை")},singleLine=true)
-      Text("மாவட்டம்")
-      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){FilterChip(district=="Tirunelveli",{district="Tirunelveli"},label={Text("திருநெல்வேலி")});FilterChip(district=="Tenkasi",{district="Tenkasi"},label={Text("தென்காசி")})}
-     }
-     1 -> {
-      OutlinedTextField(title,{title=it},Modifier.fillMaxWidth(),label={Text("நிகழ்ச்சி / அசைன்மென்ட் தலைப்பு")},singleLine=true)
-      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-       OutlinedTextField(eventDate,{eventDate=it},Modifier.weight(1f),label={Text("தேதி (YYYY-MM-DD)")},singleLine=true)
-       OutlinedTextField(eventTime,{eventTime=it},Modifier.weight(1f),label={Text("நேரம்")},singleLine=true)
-      }
-      OutlinedTextField(eventPlace,{eventPlace=it},Modifier.fillMaxWidth(),label={Text("இடம்")},singleLine=true)
-      OutlinedTextField(body,{body=it},Modifier.fillMaxWidth().weight(1f,fill=false).heightIn(min=180.dp),label={Text("முழு நிகழ்ச்சி விவரங்கள் / செய்ய வேண்டியவை")},minLines=8,maxLines=100)
-      OutlinedTextField(category,{category=it},Modifier.fillMaxWidth(),label={Text("வகை")},singleLine=true)
-      Text("மாவட்டம்")
-      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){FilterChip(district=="Tirunelveli",{district="Tirunelveli"},label={Text("திருநெல்வேலி")});FilterChip(district=="Tenkasi",{district="Tenkasi"},label={Text("தென்காசி")})}
-     }
-     else -> {
-      OutlinedTextField(title,{title=it},Modifier.fillMaxWidth(),label={Text("முழுப் பெயர்")},singleLine=true)
-      OutlinedTextField(body,{body=it},Modifier.fillMaxWidth(),label={Text("மொபைல் எண்")},singleLine=true)
-      OutlinedTextField(contactExtra,{contactExtra=it},Modifier.fillMaxWidth().heightIn(min=120.dp),label={Text("நிறுவனம் / பதவி / குறிப்புகள்")},minLines=4)
-     }
+ if(showAddMenu) AlertDialog(onDismissRequest={showAddMenu=false},title={Text("புதிய பதிவு")},text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){listOf("புதிய செய்தி","புதிய அசைன்மென்ட்","புதிய தொடர்பு").forEachIndexed{i,l->OutlinedButton(onClick={startEntry(i)},modifier=Modifier.fillMaxWidth()){Text(l)}}}},confirmButton={TextButton(onClick={showAddMenu=false}){Text("மூடு")}})
+ Column((if(form) Modifier.fillMaxSize().padding(p).padding(horizontal=16.dp,vertical=8.dp).verticalScroll(rememberScrollState()) else Modifier.fillMaxSize().padding(p).padding(horizontal=16.dp,vertical=10.dp)),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+  if(form) {
+   if(tab==0 && formStep==0) {
+    Text("செய்தியை முழுமையாக எழுதுங்கள்",style=MaterialTheme.typography.titleLarge)
+    OutlinedTextField(body,{body=it},Modifier.fillMaxWidth().heightIn(min=480.dp),label={Text("செய்தி")},minLines=20,maxLines=200)
+   } else if(tab==0) {
+    Text(if(formStep==1)"எந்த மாவட்டம்?" else "செய்தித் துறை மற்றும் கேட்டகிரி",style=MaterialTheme.typography.titleLarge)
+    if(formStep==1) {
+     listOf("திருநெல்வேலி","தென்காசி").forEach{FilterChip(selected=district==it,onClick={district=it},label={Text(it)})}
+    } else {
+     Text("எந்தத் துறை?")
+     departments.forEach{FilterChip(selected=department==it,onClick={department=it},label={Text(it)})}
+     Text("கேட்டகிரி")
+     categories.forEach{FilterChip(selected=category==it,onClick={category=it},label={Text(it)})}
     }
-    if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.error)
+   } else if(tab==1 && formStep==0) {
+    Text("அசைன்மென்ட் விவரத்தை எழுதுங்கள்",style=MaterialTheme.typography.titleLarge)
+    OutlinedTextField(body,{body=it},Modifier.fillMaxWidth().heightIn(min=480.dp),label={Text("முழு விவரம்")},minLines=20,maxLines=200)
+   } else if(tab==1) {
+    Text("நிகழ்ச்சி விவரங்கள்",style=MaterialTheme.typography.titleLarge)
+    OutlinedTextField(eventDate,{eventDate=it},Modifier.fillMaxWidth(),label={Text("தேதி (YYYY-MM-DD)")},singleLine=true)
+    OutlinedTextField(eventTime,{eventTime=it},Modifier.fillMaxWidth(),label={Text("நேரம்")},singleLine=true)
+    OutlinedTextField(eventPlace,{eventPlace=it},Modifier.fillMaxWidth(),label={Text("இடம் (விருப்பம்)")},singleLine=true)
+    Text("மாவட்டம்")
+    listOf("திருநெல்வேலி","தென்காசி").forEach{FilterChip(selected=district==it,onClick={district=it},label={Text(it)})}
    } else {
-    Text(listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்")[tab],style=MaterialTheme.typography.headlineSmall)
-    OutlinedTextField(search,{search=it},Modifier.fillMaxWidth(),label={Text("தேடுங்கள்")},singleLine=true)
-    if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-    if(message.isNotBlank()) Text(message,color=if(message.contains("சேமிக்கப்பட்டது")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-    val visibleRows=rows.filter { it.title.contains(search,true)||it.body.contains(search,true)||it.meta.contains(search,true) }
-    if(visibleRows.isEmpty()&&!busy) Text(if(tab==1)"அசைன்மென்ட் இல்லை. + மூலம் நிகழ்ச்சியைச் சேர்க்கவும்." else "பதிவுகள் இல்லை. + பொத்தானைத் தொட்டு சேர்க்கவும்.")
-    LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp),contentPadding=PaddingValues(bottom=12.dp)){items(visibleRows,key={it.id}){e->ElevatedCard(Modifier.fillMaxWidth()){Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
-     if(tab==1 && e.date.isNotBlank()) Text(e.date,style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
-     Text(e.title,style=MaterialTheme.typography.titleMedium)
-     if(e.body.isNotBlank())Text(e.body)
-     if(e.meta.isNotBlank())Text(e.meta,style=MaterialTheme.typography.labelSmall)
-     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
-      TextButton(onClick={
-       editingId=e.id; title=e.title; body=e.body; category=e.meta.ifBlank{"general"}
-       if(tab==1) eventDate=e.date
-       if(tab==2) contactExtra=e.meta
-       form=true; message=""
-      }) { Text("திருத்து") }
-      if(tab!=2) OutlinedButton(onClick={val s=(if(tab==0)"📰 செய்தி" else "📋 அசைன்மென்ட்")+"\\n\\n"+e.title+"\\n"+e.body;context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"பகிரவும்"))}){Text("பகிர்")}
-     }
-    }}}}
+    Text("புதிய தொடர்பு",style=MaterialTheme.typography.titleLarge)
+    OutlinedTextField(title,{title=it},Modifier.fillMaxWidth(),label={Text("முழுப் பெயர்")},singleLine=true)
+    OutlinedTextField(body,{body=it},Modifier.fillMaxWidth(),label={Text("தொலைபேசி எண்")},singleLine=true)
+    OutlinedTextField(contactExtra,{contactExtra=it},Modifier.fillMaxWidth(),label={Text("குறிப்புகள்")},minLines=3)
    }
+   if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.error)
+  } else {
+   Text(listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்")[tab],style=MaterialTheme.typography.headlineSmall)
+   OutlinedTextField(search,{search=it},Modifier.fillMaxWidth(),label={Text("தேடுங்கள்")},singleLine=true)
+   if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+   if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.primary)
+   val visibleRows=rows.filter{it.title.contains(search,true)||it.body.contains(search,true)||it.meta.contains(search,true)}
+   if(visibleRows.isEmpty()&&!busy) Text("பதிவுகள் இல்லை. + பொத்தானைத் தொட்டு சேர்க்கவும்.")
+   LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp),contentPadding=PaddingValues(bottom=12.dp)){items(visibleRows,key={it.id}){e->ElevatedCard(onClick={selectedEntry=e},modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+    if(tab==1&&e.date.isNotBlank()) Text(e.date,style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
+    Text(e.title,style=MaterialTheme.typography.titleMedium)
+    if(e.body.isNotBlank()) Text(e.body,maxLines=3,overflow=TextOverflow.Ellipsis)
+    if(e.meta.isNotBlank()) Text(e.meta,style=MaterialTheme.typography.labelSmall)
+    if(tab==2) Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+     TextButton(onClick={val number=e.phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$number")))}){Text("அழை")}
+     TextButton(onClick={val number=e.phone.filter{it.isDigit()};context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://wa.me/$number")))}){Text("WhatsApp")}
+    } else Row(horizontalArrangement=Arrangement.End,modifier=Modifier.fillMaxWidth()){
+     TextButton(onClick={selectedEntry=e}){Text("முழுமையாக")}
+     TextButton(onClick={val s=e.title+"\n\n"+e.body;context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"பகிரவும்"))}){Text("பகிர்")}
+     TextButton(onClick={deleteTarget=e}){Text("நீக்கு")}
+    }
+   }}}}
   }
  }
+ }
+ if(selectedEntry!=null) {
+  val e=selectedEntry!!
+  AlertDialog(onDismissRequest={selectedEntry=null},title={Text(e.title)},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){if(e.meta.isNotBlank())Text(e.meta);Text(e.body.ifBlank{"விவரங்கள் இல்லை"})}},confirmButton={TextButton(onClick={selectedEntry=null}){Text("மூடு")}},dismissButton={TextButton(onClick={
+   title=e.title; body=e.body; category=e.meta.ifBlank{"மற்றவை"}; editingId=e.id
+   if(tab==2) contactExtra=e.meta
+   if(tab==1) eventDate=e.date
+   selectedEntry=null; form=true; formStep=0
+  }){Text("திருத்து")}})
+ }
+ if(deleteTarget!=null) AlertDialog(onDismissRequest={deleteTarget=null},title={Text("பதிவை நீக்கவா?")},text={Text("இந்தப் பதிவு நீக்கப்படும். இந்தச் செயலைத் திரும்பப் பெற முடியாது.")},confirmButton={TextButton(onClick={val e=deleteTarget!!;deleteTarget=null;scope.launch{busy=true;try{withContext(Dispatchers.IO){api.delete(listOf("news_items","assignments","contacts")[tab],e.id)};message="நீக்கப்பட்டது";load()}catch(ex:Exception){message=ex.message ?: "நீக்க முடியவில்லை"};busy=false}}){Text("நீக்கு")}},dismissButton={TextButton(onClick={deleteTarget=null}){Text("ரத்து")}})
 }
