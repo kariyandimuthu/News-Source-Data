@@ -82,7 +82,7 @@ private val categories = listOf("குற்றம்","விபத்து",
     else saveEntry()
    },modifier=Modifier.weight(2f).heightIn(min=52.dp)){Text(if(busy)"சேமிக்கிறது…" else when {tab==0&&formStep==0->"Submit";tab==0&&formStep==1->"அடுத்து";tab==1&&formStep==0->"Submit";else->"சேமி"})}
   }} else NavigationBar { listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்").forEachIndexed{i,l->NavigationBarItem(selected=tab==i,onClick={tab=i;form=false;search=""},icon={Text(listOf("📰","📋","☎")[i])},label={Text(l)})} }},
-  floatingActionButton={if(!form) FloatingActionButton(onClick={showAddMenu=true){Text("+",style=MaterialTheme.typography.headlineMedium)}}
+  floatingActionButton={if(!form) FloatingActionButton(onClick={showAddMenu=true}){Text("+",style=MaterialTheme.typography.headlineMedium)}}
  ) { p ->
  if(showAddMenu) AlertDialog(onDismissRequest={showAddMenu=false},title={Text("புதிய பதிவு")},text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){listOf("புதிய செய்தி","புதிய அசைன்மென்ட்","புதிய தொடர்பு").forEachIndexed{i,l->OutlinedButton(onClick={startEntry(i)},modifier=Modifier.fillMaxWidth()){Text(l)}}}},confirmButton={TextButton(onClick={showAddMenu=false}){Text("மூடு")}})
  Column((if(form) Modifier.fillMaxSize().padding(p).padding(horizontal=16.dp,vertical=8.dp).verticalScroll(rememberScrollState()) else Modifier.fillMaxSize().padding(p).padding(horizontal=16.dp,vertical=10.dp)),verticalArrangement=Arrangement.spacedBy(12.dp)) {
