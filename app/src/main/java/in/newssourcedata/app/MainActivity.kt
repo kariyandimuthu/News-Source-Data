@@ -1055,6 +1055,38 @@ private fun RecordFormScreen(
     var newCategoryName by remember { mutableStateOf("") }
     var activeTimeTarget by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var ocrRunning by remember { mutableStateOf(false) }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                ocrRunning = true
+                message = ""
+                try {
+                    val recognizedText = performTamilEnglishOcr(context, uri).trim()
+                    if (recognizedText.isBlank()) {
+                        message = "படத்தில் வாசிக்கக்கூடிய உரை கிடைக்கவில்லை."
+                    } else {
+                        when (tab) {
+                            0, 1 -> details = if (details.isBlank()) recognizedText else details.trimEnd() + "\n\n" + recognizedText
+                            else -> {
+                                val firstLine = recognizedText.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+                                if (title.isBlank()) title = firstLine.take(150)
+                                val detectedPhone = Regex("(?<!\\d)(?:\\+?\\d[\\d\\s().-]{7,}\\d)(?!\\d)").find(recognizedText)?.value?.trim()
+                                if (phone.isBlank()) phone = detectedPhone.orEmpty()
+                                notes = if (notes.isBlank()) recognizedText else notes.trimEnd() + "\n\n" + recognizedText
+                            }
+                        }
+                        message = "படத்திலிருந்து உரை எடுக்கப்பட்டது. சரிபார்த்து சேமிக்கவும்."
+                    }
+                } catch (error: Exception) {
+                    message = error.message ?: "OCR செய்ய முடியவில்லை. மீண்டும் முயற்சிக்கவும்."
+                } finally {
+                    ocrRunning = false
+                }
+            }
+        }
+    }
     val datePickerState = rememberDatePickerState(initialSelectedDateMillis = dateToMillis(date))
     val timePickerState = rememberTimePickerState(initialHour = 9, initialMinute = 0, is24Hour = true)
     val formTitle = when (tab) {
@@ -1215,6 +1247,13 @@ private fun RecordFormScreen(
                 },
                 navigationIcon = { TextButton(onClick = onBack) { Text("✕", style = MaterialTheme.typography.titleMedium) } },
                 actions = {
+                    IconButton(
+                        onClick = { imagePicker.launch("image/*") },
+                        enabled = !saving && !ocrRunning
+                    ) {
+                        if (ocrRunning) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Default.DocumentScanner, contentDescription = "படத்திலிருந்து உரை எடுக்க", tint = MaterialTheme.colorScheme.primary)
+                    }
                     Button(
                         onClick = {
                             val resolvedTitle = if (tab == 2) title.trim() else autoTitle
@@ -1390,3 +1429,56 @@ private fun millisToDate(value: Long): String = Instant.ofEpochMilli(value).atZo
 private fun dateLabel(value: String): String = runCatching {
     LocalDate.parse(value).format(DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH))
 }.getOrDefault(value)
+
+
+private suspend fun performTamilEnglishOcr(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
+    val root = File(context.filesDir, "news_source_ocr")
+    val tessdata = File(root, "tessdata")
+    if (!tessdata.exists() && !tessdata.mkdirs()) {
+        throw IllegalStateException("OCR தரவு கோப்புறையை உருவாக்க முடியவில்லை.")
+    }
+    listOf("tam", "eng").forEach { language ->
+        val trainedData = File(tessdata, "$language.traineddata")
+        if (!trainedData.exists() || trainedData.length() < 100_000L) {
+            val partial = File(tessdata, "$language.traineddata.part")
+            try {
+                val connection = URL("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/$language.traineddata").openConnection()
+                connection.connectTimeout = 20_000
+                connection.readTimeout = 120_000
+                connection.getInputStream().use { input ->
+                    FileOutputStream(partial).use { output -> input.copyTo(output) }
+                }
+                if (!partial.exists() || partial.length() < 100_000L) {
+                    throw IllegalStateException("$language OCR மொழித் தரவு முழுமையாகப் பதிவிறங்கவில்லை.")
+                }
+                if (trainedData.exists()) trainedData.delete()
+                if (!partial.renameTo(trainedData)) throw IllegalStateException("OCR மொழித் தரவைச் சேமிக்க முடியவில்லை.")
+            } finally {
+                if (partial.exists()) partial.delete()
+            }
+        }
+    }
+
+    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        ?: throw IllegalStateException("படத்தைத் திறக்க முடியவில்லை.")
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    var sampleSize = 1
+    while (maxOf(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > 2000) sampleSize *= 2
+    val bitmap = BitmapFactory.decodeByteArray(
+        bytes, 0, bytes.size,
+        BitmapFactory.Options().apply { inSampleSize = sampleSize }
+    ) ?: throw IllegalStateException("இந்தப் படத்தை வாசிக்க முடியவில்லை.")
+
+    val recognizer = TessBaseAPI()
+    try {
+        if (!recognizer.init(root.absolutePath, "tam+eng")) {
+            throw IllegalStateException("தமிழ்/ஆங்கில OCR இயந்திரத்தைத் தொடங்க முடியவில்லை.")
+        }
+        recognizer.setImage(bitmap)
+        recognizer.getUTF8Text().orEmpty().trim()
+    } finally {
+        recognizer.end()
+        bitmap.recycle()
+    }
+}
