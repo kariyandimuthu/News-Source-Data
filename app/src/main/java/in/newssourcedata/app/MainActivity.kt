@@ -486,47 +486,99 @@ private fun EmptyListMessage(message: String) {
 
 @Composable
 private fun NewsCard(item: NewsRecord, districtName: String) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(item.headline, style = MaterialTheme.typography.titleMedium)
-            Text(item.newsDate + " • " + districtName, style = MaterialTheme.typography.bodySmall)
-            Text("வகை: " + item.category + " • நிலை: " + item.status + " • முன்னுரிமை: " + item.priority, style = MaterialTheme.typography.labelSmall)
-            if (item.summary.isNotBlank()) Text(item.summary, style = MaterialTheme.typography.bodyMedium)
-            if (item.body.isNotBlank()) Text(item.body, style = MaterialTheme.typography.bodyMedium)
-            if (!item.location.isNullOrBlank()) Text("இடம்: " + item.location, style = MaterialTheme.typography.bodySmall)
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Text("✎", modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), color = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(item.category.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(item.newsDate + " · " + districtName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Surface(shape = MaterialTheme.shapes.small, color = when (item.priority) {
+                    "urgent" -> MaterialTheme.colorScheme.errorContainer
+                    "high" -> MaterialTheme.colorScheme.tertiaryContainer
+                    else -> MaterialTheme.colorScheme.surfaceVariant
+                }) {
+                    Text(item.priority, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Text(item.headline, style = MaterialTheme.typography.titleLarge)
+            if (item.summary.isNotBlank()) Text(item.summary, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (item.body.isNotBlank()) Text(item.body, style = MaterialTheme.typography.bodyMedium, maxLines = 4)
+            if (!item.location.isNullOrBlank()) Text("⌖  " + item.location, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceVariant) {
+                    Text(item.status, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
     }
-}
-
-@Composable
+}@Composable
 private fun AssignmentCard(item: AssignmentRecord, districtName: String) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(item.title, style = MaterialTheme.typography.titleMedium)
-            Text((item.eventDate.ifBlank { "தேதி குறிப்பிடப்படவில்லை" }) + " • " + districtName, style = MaterialTheme.typography.bodySmall)
-            Text("நிலை: " + item.status + " • முன்னுரிமை: " + item.priority, style = MaterialTheme.typography.labelSmall)
-            if (item.description.isNotBlank()) Text(item.description)
-            if (!item.location.isNullOrBlank()) Text("இடம்: " + item.location, style = MaterialTheme.typography.bodySmall)
+    val dateParts = item.eventDate.split("-")
+    val day = dateParts.getOrNull(2)?.takeIf { it.isNotBlank() } ?: "—"
+    val month = try { LocalDate.parse(item.eventDate).month.name.take(3) } catch (_: Exception) { "DATE" }
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.width(62.dp)
+            ) {
+                Column(modifier = Modifier.padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(month, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(day, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(item.status.replace("_", " "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("· " + item.priority, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(item.title, style = MaterialTheme.typography.titleMedium)
+                if (item.description.isNotBlank()) Text(item.description, style = MaterialTheme.typography.bodyMedium, maxLines = 3, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("⌖  $districtName" + if (!item.location.isNullOrBlank()) " · " + item.location else "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
-}
-
-@Composable
+}@Composable
 private fun ContactCard(item: ContactRecord, districtName: String) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(item.fullName, style = MaterialTheme.typography.titleMedium)
-            if (item.designation.isNotBlank()) Text(item.designation)
-            if (item.organization.isNotBlank()) Text(item.organization, style = MaterialTheme.typography.bodySmall)
-            if (item.phone.isNotBlank()) Text("தொலைபேசி: " + item.phone)
-            if (item.email.isNotBlank()) Text("மின்னஞ்சல்: " + item.email, style = MaterialTheme.typography.bodySmall)
-            Text(districtName, style = MaterialTheme.typography.bodySmall)
-            if (item.notes.isNotBlank()) Text(item.notes, style = MaterialTheme.typography.bodyMedium)
+    val initials = item.fullName.trim().split(Regex("\\s+")).take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("")
+    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(13.dp)
+        ) {
+            Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.tertiaryContainer) {
+                Box(modifier = Modifier.size(54.dp), contentAlignment = Alignment.Center) {
+                    Text(initials.ifBlank { "?" }, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                }
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(item.fullName, style = MaterialTheme.typography.titleMedium)
+                val roleLine = listOf(item.designation, item.organization).filter { it.isNotBlank() }.joinToString(" · ")
+                if (roleLine.isNotBlank()) Text(roleLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (item.phone.isNotBlank()) Text("☎  " + item.phone, style = MaterialTheme.typography.bodyMedium)
+                if (item.email.isNotBlank()) Text("✉  " + item.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(districtName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                if (item.notes.isNotBlank()) Text(item.notes, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+            }
         }
     }
-}
-
-@Composable
+}@Composable
 private fun DistrictDropdown(
     districts: List<District>,
     selectedId: String,
