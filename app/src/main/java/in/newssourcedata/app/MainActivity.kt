@@ -1106,6 +1106,62 @@ private fun NewsCard(item: NewsRecord, districtName: String, onPreview: () -> Un
 }
 
 @Composable
+private fun StockVideoSearchCard(
+    api: SupabaseApi,
+    video: StockVideoRecord,
+    compact: Boolean
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var downloading by remember(video.id) { mutableStateOf(false) }
+    ElevatedCard(
+        modifier = if (compact) Modifier.width(250.dp) else Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(13.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(video.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+            video.fileName?.takeIf { it.isNotBlank() && !it.equals(video.title, true) }?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(video.previewUrl))) }
+                            .onFailure { Toast.makeText(context, "Google Drive Preview-ஐத் திறக்க முடியவில்லை.", Toast.LENGTH_LONG).show() }
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) { Text("▶ Preview", style = MaterialTheme.typography.labelMedium) }
+                Button(
+                    enabled = !downloading,
+                    onClick = {
+                        scope.launch {
+                            downloading = true
+                            try {
+                                val fileName = api.downloadGoogleDriveVideo(context, video)
+                                Toast.makeText(context, "பதிவிறக்கம் முடிந்தது: Downloads/NewsSourceData/" + fileName, Toast.LENGTH_LONG).show()
+                            } catch (error: Exception) {
+                                Toast.makeText(context, error.message ?: "வீடியோ பதிவிறக்கம் தோல்வியடைந்தது.", Toast.LENGTH_LONG).show()
+                            } finally {
+                                downloading = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    if (downloading) CircularProgressIndicator(Modifier.size(15.dp), strokeWidth = 2.dp)
+                    else Text("↓ Download", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun AssignmentCard(item: AssignmentRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onShare: () -> Unit) {
     val day = item.eventDate.split("-").getOrNull(2)?.takeIf { it.isNotBlank() } ?: "—"
     val month = try { LocalDate.parse(item.eventDate).month.name.take(3) } catch (_: Exception) { "" }
