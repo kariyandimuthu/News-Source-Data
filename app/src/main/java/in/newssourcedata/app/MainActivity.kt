@@ -270,6 +270,7 @@ private fun MainAppScreen(
     var news by remember { mutableStateOf<List<NewsRecord>>(emptyList()) }
     var assignments by remember { mutableStateOf<List<AssignmentRecord>>(emptyList()) }
     var contacts by remember { mutableStateOf<List<ContactRecord>>(emptyList()) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(selectedTab, refreshVersion) {
         loading = true
@@ -817,6 +818,7 @@ private fun ChoiceDropdown(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RecordFormScreen(
     tab: Int,
