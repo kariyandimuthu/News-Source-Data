@@ -419,6 +419,8 @@ private fun MainAppScreen(
     var news by remember { mutableStateOf<List<NewsRecord>>(emptyList()) }
     var assignments by remember { mutableStateOf<List<AssignmentRecord>>(emptyList()) }
     var contacts by remember { mutableStateOf<List<ContactRecord>>(emptyList()) }
+    var stockVideos by remember { mutableStateOf<List<StockVideoRecord>>(emptyList()) }
+    var aiStockVideos by remember { mutableStateOf<List<StockVideoRecord>>(emptyList()) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(selectedTab, refreshVersion) {
@@ -445,6 +447,7 @@ private fun MainAppScreen(
             try {
                 aiNews = api.getNews()
                 aiAssignments = api.getAssignments()
+                aiStockVideos = runCatching { api.getStockVideos() }.getOrDefault(emptyList())
             } catch (error: Exception) {
                 aiError = error.message ?: "தரவுகளைப் பெற முடியவில்லை."
             } finally {
@@ -453,12 +456,24 @@ private fun MainAppScreen(
         }
     }
 
+    LaunchedEffect(selectedTab, refreshVersion) {
+        stockVideos = runCatching { api.getStockVideos() }.getOrDefault(emptyList())
+    }
+
     val districtNames = remember(districts) { districts.associate { it.id to it.name } }
+    val matchingStockVideos = remember(stockVideos, searchText) {
+        val query = searchText.trim()
+        if (query.isBlank()) emptyList() else stockVideos.filter { video ->
+            video.title.contains(query, true) ||
+                video.fileName.orEmpty().contains(query, true) ||
+                video.driveUrl.contains(query, true)
+        }.take(8)
+    }
 
     val context = LocalContext.current
 
     if (showStockVideos) {
-        StockVideosScreen(api = api, onBack = { showStockVideos = false })
+        StockVideosScreen(api = api, onBack = { showStockVideos = false; refreshVersion += 1 })
         return
     }
 
@@ -648,8 +663,10 @@ private fun MainAppScreen(
 
     if (showAiAssistant) {
         AiAssistantDialog(
+            api = api,
             news = aiNews,
             assignments = aiAssignments,
+            stockVideos = aiStockVideos,
             loading = aiLoading,
             error = aiError,
             onDismiss = { showAiAssistant = false }
@@ -774,7 +791,7 @@ private fun MainAppScreen(
                         textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                         decorationBox = { inner ->
                             Box {
-                                if (searchText.isBlank()) Text("செய்தி / தொடர்பு / வகை தேடுக", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                                if (searchText.isBlank()) Text("செய்தி / Assignment / தொடர்பு / Stock Video தேடுக", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                                 inner()
                             }
                         }
@@ -812,6 +829,27 @@ private fun MainAppScreen(
                 Text(statusMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, maxLines = 2)
                 TextButton(onClick = { refreshVersion += 1 }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) { Text("மீண்டும் முயற்சி") }
             }
+            if (!loading && matchingStockVideos.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "ஸ்டாக் வீடியோ முடிவுகள் (" + matchingStockVideos.size + ")",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { showStockVideos = true }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                        Text("எல்லாம்")
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    matchingStockVideos.forEach { video ->
+                        StockVideoSearchCard(api = api, video = video, compact = true)
+                    }
+                }
+            }
             if (loading) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             } else {
@@ -825,8 +863,13 @@ private fun MainAppScreen(
                             val categoryMatches = categoryFilter.isBlank() || item.category == categoryFilter
                             textMatches && districtMatches && categoryMatches && dateMatches(item.newsDate, dateFilter)
                         }
-                        if (filtered.isEmpty()) EmptyListMessage("செய்திகள் இல்லை. + பொத்தானை அழுத்திச் சேர்க்கவும்.")
-                        else {
+                        if (filtered.isEmpty()) {
+                            EmptyListMessage(
+                                if (searchText.isNotBlank() && matchingStockVideos.isNotEmpty())
+                                    "இந்தத் தேடலுக்குப் பொருந்தும் செய்தி இல்லை. மேலே உள்ள Stock Videos முடிவுகளைப் பார்க்கவும்."
+                                else "செய்திகள் இல்லை. + பொத்தானை அழுத்திச் சேர்க்கவும்."
+                            )
+                        } else {
                             val totalPages = (filtered.size + 9) / 10
                             val safePage = pageNumber.coerceIn(1, totalPages)
                             val pageItems = filtered.drop((safePage - 1) * 10).take(10)
@@ -835,7 +878,7 @@ private fun MainAppScreen(
                                     items(pageItems, key = { it.id }) { item ->
                                         val districtName = districtNames[item.districtId] ?: ""
                                         NewsCard(
-                                            api = api, item = item, districtName = districtName,
+                                            item = item, districtName = districtName,
                                             onPreview = { previewNews = item },
                                             onEdit = {
                                                 activeEditId = item.id
@@ -1035,7 +1078,7 @@ private fun IconAction(icon: ImageVector, label: String, onClick: () -> Unit, ti
 }
 
 @Composable
-private fun NewsCard(api: SupabaseApi, item: NewsRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onShare: () -> Unit) {
+private fun NewsCard(item: NewsRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onShare: () -> Unit) {
     ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp)) {
         Row(modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 9.dp, bottom = 9.dp, end = 5.dp),
             verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -1051,13 +1094,68 @@ private fun NewsCard(api: SupabaseApi, item: NewsRecord, districtName: String, o
                 if (meta.isNotBlank()) Text(meta, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 val previewBody = articleBodyWithoutRepeatedHeadline(item.headline, item.body)
                 if (previewBody.isNotBlank()) Text(previewBody, style = MaterialTheme.typography.bodySmall, maxLines = 3, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (item.attachmentPaths.isNotEmpty()) NewsPhotoStrip(api, item.attachmentPaths.take(2))
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 IconAction(Icons.Default.Visibility, "முன்னோட்டம்", onPreview, MaterialTheme.colorScheme.primary)
                 IconAction(Icons.Default.Edit, "திருத்து", onEdit)
                 IconAction(Icons.Default.Share, "WhatsApp பகிர்வு", onShare, MaterialTheme.colorScheme.secondary)
                 IconAction(Icons.Default.Delete, "நீக்கு", onDelete, MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StockVideoSearchCard(
+    api: SupabaseApi,
+    video: StockVideoRecord,
+    compact: Boolean
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var downloading by remember(video.id) { mutableStateOf(false) }
+    ElevatedCard(
+        modifier = if (compact) Modifier.width(250.dp) else Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(13.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(video.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+            video.fileName?.takeIf { it.isNotBlank() && !it.equals(video.title, true) }?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(video.previewUrl))) }
+                            .onFailure { Toast.makeText(context, "Google Drive Preview-ஐத் திறக்க முடியவில்லை.", Toast.LENGTH_LONG).show() }
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) { Text("▶ Preview", style = MaterialTheme.typography.labelMedium) }
+                Button(
+                    enabled = !downloading,
+                    onClick = {
+                        scope.launch {
+                            downloading = true
+                            try {
+                                val fileName = api.downloadGoogleDriveVideo(context, video)
+                                Toast.makeText(context, "பதிவிறக்கம் முடிந்தது: Downloads/NewsSourceData/" + fileName, Toast.LENGTH_LONG).show()
+                            } catch (error: Exception) {
+                                Toast.makeText(context, error.message ?: "வீடியோ பதிவிறக்கம் தோல்வியடைந்தது.", Toast.LENGTH_LONG).show()
+                            } finally {
+                                downloading = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    if (downloading) CircularProgressIndicator(Modifier.size(15.dp), strokeWidth = 2.dp)
+                    else Text("↓ Download", style = MaterialTheme.typography.labelMedium)
+                }
             }
         }
     }
@@ -2059,8 +2157,10 @@ private suspend fun <T> Task<T>.awaitMlKit(): T = suspendCancellableCoroutine { 
 
 @Composable
 private fun AiAssistantDialog(
+    api: SupabaseApi,
     news: List<NewsRecord>,
     assignments: List<AssignmentRecord>,
+    stockVideos: List<StockVideoRecord>,
     loading: Boolean,
     error: String,
     onDismiss: () -> Unit
@@ -2085,6 +2185,11 @@ private fun AiAssistantDialog(
             item.description.contains(normalizedQuery, true) ||
             item.category.contains(normalizedQuery, true) ||
             item.location.orEmpty().contains(normalizedQuery, true)
+    }.take(8)
+    val matchingStockVideos = if (normalizedQuery.isBlank()) emptyList() else stockVideos.filter { video ->
+        video.title.contains(normalizedQuery, true) ||
+            video.fileName.orEmpty().contains(normalizedQuery, true) ||
+            video.driveUrl.contains(normalizedQuery, true)
     }.take(8)
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -2111,7 +2216,7 @@ private fun AiAssistantDialog(
                     value = query,
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("செய்தி / இடம் / Assignment தேடுக") },
+                    label = { Text("செய்தி / இடம் / Assignment / Stock Video தேடுக") },
                     placeholder = { Text("எ.கா. நாங்குநேரி, திருட்டு…") },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     singleLine = true
@@ -2167,6 +2272,20 @@ private fun AiAssistantDialog(
                                         if (item.description.isNotBlank()) Text(item.description, style = MaterialTheme.typography.bodySmall, maxLines = 4)
                                     }
                                 }
+                            }
+                        }
+                        item {
+                            Text(
+                                "கிடைத்த Stock Videos (" + matchingStockVideos.size + ")",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (matchingStockVideos.isEmpty()) {
+                            item { Text("பொருந்தும் Stock Video இல்லை.", style = MaterialTheme.typography.bodySmall) }
+                        } else {
+                            items(matchingStockVideos, key = { "stock-video-" + it.id }) { video ->
+                                StockVideoSearchCard(api = api, video = video, compact = false)
                             }
                         }
                     } else {
