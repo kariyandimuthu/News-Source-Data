@@ -95,12 +95,24 @@ private fun AppRoot(api: SupabaseApi) {
     LaunchedEffect(Unit) {
         if (api.hasSession()) {
             try {
-                profile = api.getProfile()
-                if (profile?.approvalStatus == "approved") {
-                    page = "main"
+                val deviceName = api.getDeviceDisplayName()
+                if (deviceName.isBlank()) {
+                    api.signOut()
+                    page = "login"
                 } else {
-                    pendingMessage = approvalMessage(profile?.approvalStatus)
-                    page = "pending"
+                    val deviceStatus = api.registerDevice(deviceName)
+                    if (deviceStatus == "owner" || deviceStatus == "approved") {
+                        profile = api.getProfile()
+                        if (profile?.approvalStatus == "approved") {
+                            page = "main"
+                        } else {
+                            pendingMessage = profileApprovalMessage(profile?.approvalStatus)
+                            page = "pending"
+                        }
+                    } else {
+                        pendingMessage = deviceApprovalMessage(deviceStatus, deviceName)
+                        page = "pending"
+                    }
                 }
             } catch (error: Exception) {
                 loginError = error.message ?: "Supabase-ஐ அணுக முடியவில்லை."
@@ -111,22 +123,29 @@ private fun AppRoot(api: SupabaseApi) {
     }
 
     when (page) {
-        "checking" -> CenteredMessage("Supabase-ஐ இணைக்கிறது…")
+        "checking" -> CenteredMessage("சாதன அனுமதியைச் சரிபார்க்கிறது…")
         "login" -> LoginScreen(
             loading = busy,
             message = loginError,
-            onLogin = { email, password, displayName ->
+            initialDisplayName = api.getDeviceDisplayName(),
+            onLogin = { displayName, password ->
                 scope.launch {
                     busy = true
                     loginError = ""
                     try {
-                        api.signIn(email, password)
-                        api.setDeviceDisplayName(displayName)
-                        profile = api.getProfile()
-                        if (profile?.approvalStatus == "approved") {
-                            page = "main"
+                        if (displayName.isBlank()) throw IllegalStateException("உங்கள் பெயரை உள்ளிடவும்.")
+                        api.signIn(password)
+                        val deviceStatus = api.registerDevice(displayName)
+                        if (deviceStatus == "owner" || deviceStatus == "approved") {
+                            profile = api.getProfile()
+                            if (profile?.approvalStatus == "approved") {
+                                page = "main"
+                            } else {
+                                pendingMessage = profileApprovalMessage(profile?.approvalStatus)
+                                page = "pending"
+                            }
                         } else {
-                            pendingMessage = approvalMessage(profile?.approvalStatus)
+                            pendingMessage = deviceApprovalMessage(deviceStatus, displayName)
                             page = "pending"
                         }
                     } catch (error: Exception) {
@@ -140,6 +159,30 @@ private fun AppRoot(api: SupabaseApi) {
         )
         "pending" -> PendingScreen(
             message = pendingMessage,
+            loading = busy,
+            onCheckStatus = {
+                scope.launch {
+                    busy = true
+                    try {
+                        val deviceName = api.getDeviceDisplayName()
+                        val deviceStatus = api.registerDevice(deviceName)
+                        if (deviceStatus == "owner" || deviceStatus == "approved") {
+                            profile = api.getProfile()
+                            if (profile?.approvalStatus == "approved") {
+                                page = "main"
+                            } else {
+                                pendingMessage = profileApprovalMessage(profile?.approvalStatus)
+                            }
+                        } else {
+                            pendingMessage = deviceApprovalMessage(deviceStatus, deviceName)
+                        }
+                    } catch (error: Exception) {
+                        pendingMessage = error.message ?: "ஒப்புதல் நிலையைப் பெற முடியவில்லை."
+                    } finally {
+                        busy = false
+                    }
+                }
+            },
             onSignOut = {
                 scope.launch {
                     api.signOut()
@@ -150,7 +193,7 @@ private fun AppRoot(api: SupabaseApi) {
             }
         )
         else -> MainAppScreen(
-            isOwner = profile?.role == "owner" && api.getDeviceDisplayName().trim().equals("Muthu Rajan", ignoreCase = true),
+            isOwner = profile?.role == "owner" && api.getRegisteredDeviceStatus() == "owner",
             onSignOut = {
                 scope.launch {
                     api.signOut()
@@ -164,11 +207,18 @@ private fun AppRoot(api: SupabaseApi) {
     }
 }
 
-private fun approvalMessage(status: String?): String = when (status) {
+private fun profileApprovalMessage(status: String?): String = when (status) {
     "pending" -> "இந்தக் கணக்கு நிர்வாகி ஒப்புதலுக்காகக் காத்திருக்கிறது."
     "rejected" -> "இந்தக் கணக்கிற்கு அனுமதி வழங்கப்படவில்லை. நிர்வாகியைத் தொடர்புகொள்ளவும்."
     "revoked" -> "இந்தக் கணக்கின் அனுமதி நீக்கப்பட்டுள்ளது."
     else -> "இந்தக் கணக்கிற்கான அனுமதி விவரங்கள் கிடைக்கவில்லை. Supabase profiles அட்டவணையைச் சரிபார்க்கவும்."
+}
+
+private fun deviceApprovalMessage(status: String, displayName: String): String = when (status) {
+    "pending" -> "$displayName சாதனத்தின் உள்நுழைவு கோரிக்கை Muthu Rajan சாதனத்தின் ஒப்புதலுக்காகக் காத்திருக்கிறது."
+    "rejected" -> "இந்தச் சாதனத்திற்கான அனுமதி மறுக்கப்பட்டுள்ளது. Muthu Rajan சாதனத்தில் மீண்டும் ஒப்புதல் அளிக்கலாம்."
+    "revoked" -> "இந்தச் சாதனத்தின் அனுமதி ரத்து செய்யப்பட்டுள்ளது. நிர்வாகியைத் தொடர்புகொள்ளவும்."
+    else -> "இந்தச் சாதனத்தின் அனுமதி நிலையைச் சரிபார்க்க முடியவில்லை."
 }
 
 @Composable
@@ -185,10 +235,10 @@ private fun CenteredMessage(message: String) {
 private fun LoginScreen(
     loading: Boolean,
     message: String,
-    onLogin: (String, String, String) -> Unit
+    initialDisplayName: String,
+    onLogin: (String, String) -> Unit
 ) {
-    var displayName by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
+    var displayName by remember { mutableStateOf(initialDisplayName) }
     var password by remember { mutableStateOf("") }
 
     Column(
@@ -207,15 +257,7 @@ private fun LoginScreen(
             value = displayName,
             onValueChange = { displayName = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("இந்தச் சாதனத்தில் காட்டும் பெயர்") },
-            singleLine = true
-        )
-        Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("மின்னஞ்சல்") },
+            label = { Text("உங்கள் பெயர்") },
             singleLine = true
         )
         Spacer(Modifier.height(10.dp))
@@ -233,30 +275,45 @@ private fun LoginScreen(
         }
         Spacer(Modifier.height(18.dp))
         Button(
-            onClick = { onLogin(email.trim(), password, displayName.trim()) },
-            enabled = !loading && email.contains("@") && password.isNotBlank(),
+            onClick = { onLogin(displayName.trim(), password) },
+            enabled = !loading && displayName.isNotBlank() && password.isNotBlank(),
             modifier = Modifier.fillMaxWidth()
         ) {
             if (loading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
             else Text("உள்நுழைக")
         }
         Spacer(Modifier.height(10.dp))
-        Text("இந்தப் பதிப்பில் புதிய பயனர் பதிவு இல்லை; அங்கீகரிக்கப்பட்ட கணக்கைப் பயன்படுத்தவும்.", style = MaterialTheme.typography.bodySmall)
+        Text(
+            "புதிய சாதனத்தின் உள்நுழைவுக்கு Muthu Rajan சாதனத்தின் ஒப்புதல் தேவை.",
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 
 @Composable
-private fun PendingScreen(message: String, onSignOut: () -> Unit) {
+private fun PendingScreen(
+    message: String,
+    loading: Boolean,
+    onCheckStatus: () -> Unit,
+    onSignOut: () -> Unit
+) {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("கணக்கு அனுமதி தேவை", style = MaterialTheme.typography.headlineSmall)
+        Text("சாதன அனுமதி தேவை", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(12.dp))
         Text(message)
         Spacer(Modifier.height(20.dp))
-        Button(onClick = onSignOut) { Text("வெளியேறு") }
+        Button(onClick = onCheckStatus, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
+            if (loading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            else Text("ஒப்புதல் நிலையைச் சரிபார்")
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onSignOut, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
+            Text("வெளியேறு")
+        }
     }
 }
 
@@ -318,6 +375,7 @@ private fun MainAppScreen(
     var addMenuExpanded by remember { mutableStateOf(false) }
     var showAiAssistant by remember { mutableStateOf(false) }
     var showPasswordDialog by remember { mutableStateOf(false) }
+    var showDeviceApprovalDialog by remember { mutableStateOf(false) }
     var aiLoading by remember { mutableStateOf(false) }
     var aiNews by remember { mutableStateOf<List<NewsRecord>>(emptyList()) }
     var aiAssignments by remember { mutableStateOf<List<AssignmentRecord>>(emptyList()) }
@@ -382,7 +440,7 @@ private fun MainAppScreen(
     BackHandler(
         enabled = activeFormTab != null || previewNews != null || previewAssignment != null ||
             pendingDelete != null || showDistrictFilter || showDateFilter || showCategoryFilter ||
-            addMenuExpanded || showAiAssistant || showPasswordDialog || selectedTab != 0
+            addMenuExpanded || showAiAssistant || showPasswordDialog || showDeviceApprovalDialog || selectedTab != 0
     ) {
         when {
             activeFormTab != null -> {
@@ -398,6 +456,7 @@ private fun MainAppScreen(
             showCategoryFilter -> showCategoryFilter = false
             addMenuExpanded -> addMenuExpanded = false
             showPasswordDialog -> showPasswordDialog = false
+            showDeviceApprovalDialog -> showDeviceApprovalDialog = false
             showAiAssistant -> showAiAssistant = false
             selectedTab != 0 -> selectedTab = 0
         }
@@ -567,6 +626,13 @@ private fun MainAppScreen(
         )
     }
 
+    if (showDeviceApprovalDialog) {
+        DeviceApprovalDialog(
+            api = api,
+            onDismiss = { showDeviceApprovalDialog = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -628,6 +694,10 @@ private fun MainAppScreen(
                         showAiAssistant = true
                     })
                     if (isOwner) {
+                        DropdownMenuItem(text = { Text("📱  புதிய சாதனங்களுக்கு ஒப்புதல்") }, onClick = {
+                            addMenuExpanded = false
+                            showDeviceApprovalDialog = true
+                        })
                         DropdownMenuItem(text = { Text("🔐  கடவுச்சொல் மாற்றம் / எல்லா சாதனங்களிலிருந்தும் வெளியேறு") }, onClick = {
                             addMenuExpanded = false
                             showPasswordDialog = true
@@ -1708,6 +1778,110 @@ private fun AiAssistantDialog(
             }
         }
     }
+}
+
+@Composable
+private fun DeviceApprovalDialog(
+    api: SupabaseApi,
+    onDismiss: () -> Unit
+) {
+    var devices by remember { mutableStateOf<List<AppDeviceApproval>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    fun reload() {
+        scope.launch {
+            loading = true
+            errorMessage = ""
+            try {
+                devices = api.getPendingDeviceApprovals()
+            } catch (error: Exception) {
+                errorMessage = error.message ?: "நிலுவைச் சாதனங்களைப் பெற முடியவில்லை."
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    fun decide(deviceId: String, approved: Boolean) {
+        scope.launch {
+            loading = true
+            errorMessage = ""
+            try {
+                api.setDeviceApproval(deviceId, approved)
+                devices = api.getPendingDeviceApprovals()
+            } catch (error: Exception) {
+                errorMessage = error.message ?: "சாதன அனுமதியை மாற்ற முடியவில்லை."
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { reload() }
+
+    AlertDialog(
+        onDismissRequest = { if (!loading) onDismiss() },
+        title = { Text("புதிய சாதனங்களின் ஒப்புதல்") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 430.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("நிலுவை கோரிக்கைகள்", modifier = Modifier.weight(1f))
+                    TextButton(onClick = { reload() }, enabled = !loading) { Text("புதுப்பி") }
+                }
+                if (loading && devices.isEmpty()) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                } else if (devices.isEmpty()) {
+                    Text("ஒப்புதலுக்காகக் காத்திருக்கும் புதிய சாதனங்கள் இல்லை.")
+                }
+                devices.forEach { device ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(device.displayName, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                if (device.status == "rejected") "முன்பு மறுக்கப்பட்டது — மீண்டும் அனுமதிக்கலாம்"
+                                else "புதிய சாதன அனுமதி கோரிக்கை",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            if (device.createdAt.isNotBlank()) {
+                                Text("கோரிக்கை: \${device.createdAt.take(10)}", style = MaterialTheme.typography.labelSmall)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = { decide(device.deviceId, true) },
+                                    enabled = !loading,
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("அனுமதி") }
+                                OutlinedButton(
+                                    onClick = { decide(device.deviceId, false) },
+                                    enabled = !loading,
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("மறுக்க") }
+                            }
+                        }
+                    }
+                }
+                if (errorMessage.isNotBlank()) {
+                    Text(errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss, enabled = !loading) { Text("முடிந்தது") } }
+    )
 }
 
 @Composable
