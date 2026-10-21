@@ -304,6 +304,11 @@ private fun MainAppScreen(
     var activeEditId by remember { mutableStateOf<String?>(null) }
     var activeFormInitial by remember { mutableStateOf<RecordForm?>(null) }
     var addMenuExpanded by remember { mutableStateOf(false) }
+    var showAiAssistant by remember { mutableStateOf(false) }
+    var aiLoading by remember { mutableStateOf(false) }
+    var aiNews by remember { mutableStateOf<List<NewsRecord>>(emptyList()) }
+    var aiAssignments by remember { mutableStateOf<List<AssignmentRecord>>(emptyList()) }
+    var aiError by remember { mutableStateOf("") }
     var pendingDelete by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var previewNews by remember { mutableStateOf<NewsRecord?>(null) }
     var previewAssignment by remember { mutableStateOf<AssignmentRecord?>(null) }
@@ -341,6 +346,21 @@ private fun MainAppScreen(
         }
     }
 
+    LaunchedEffect(showAiAssistant) {
+        if (showAiAssistant) {
+            aiLoading = true
+            aiError = ""
+            try {
+                aiNews = api.getNews()
+                aiAssignments = api.getAssignments()
+            } catch (error: Exception) {
+                aiError = error.message ?: "தரவுகளைப் பெற முடியவில்லை."
+            } finally {
+                aiLoading = false
+            }
+        }
+    }
+
     val districtNames = remember(districts) { districts.associate { it.id to it.name } }
 
     val context = LocalContext.current
@@ -349,7 +369,7 @@ private fun MainAppScreen(
     BackHandler(
         enabled = activeFormTab != null || previewNews != null || previewAssignment != null ||
             pendingDelete != null || showDistrictFilter || showDateFilter || showCategoryFilter ||
-            addMenuExpanded || selectedTab != 0
+            addMenuExpanded || showAiAssistant || selectedTab != 0
     ) {
         when {
             activeFormTab != null -> {
@@ -364,6 +384,7 @@ private fun MainAppScreen(
             showDateFilter -> showDateFilter = false
             showCategoryFilter -> showCategoryFilter = false
             addMenuExpanded -> addMenuExpanded = false
+            showAiAssistant -> showAiAssistant = false
             selectedTab != 0 -> selectedTab = 0
         }
     }
@@ -512,6 +533,16 @@ private fun MainAppScreen(
         return
     }
 
+    if (showAiAssistant) {
+        AiAssistantDialog(
+            news = aiNews,
+            assignments = aiAssignments,
+            loading = aiLoading,
+            error = aiError,
+            onDismiss = { showAiAssistant = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -560,6 +591,10 @@ private fun MainAppScreen(
                     })
                     DropdownMenuItem(text = { Text("☎  தொடர்பு சேர்க்க") }, onClick = {
                         addMenuExpanded = false; activeEditId = null; activeFormInitial = null; activeFormTab = 2
+                    })
+                    DropdownMenuItem(text = { Text("🤖  AI செய்தியாளர் உதவியாளர்") }, onClick = {
+                        addMenuExpanded = false
+                        showAiAssistant = true
                     })
                 }
             }
@@ -1506,5 +1541,134 @@ private suspend fun performTamilEnglishOcr(context: Context, uri: Uri): String =
     } finally {
         recognizer.end()
         bitmap.recycle()
+    }
+}
+
+
+@Composable
+private fun AiAssistantDialog(
+    news: List<NewsRecord>,
+    assignments: List<AssignmentRecord>,
+    loading: Boolean,
+    error: String,
+    onDismiss: () -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    val normalizedQuery = query.trim()
+    val followUpAssignments = assignments.filter {
+        !it.status.equals("completed", true) &&
+            !it.status.equals("closed", true) &&
+            (it.priority == "follow_up" || it.category == "follow_up" ||
+                it.title.contains("பின்தொடர", true) || it.description.contains("பின்தொடர", true))
+    }
+    val matchingNews = if (normalizedQuery.isBlank()) emptyList() else news.filter { item ->
+        item.headline.contains(normalizedQuery, true) ||
+            item.body.contains(normalizedQuery, true) ||
+            item.summary.contains(normalizedQuery, true) ||
+            item.category.contains(normalizedQuery, true) ||
+            item.location.orEmpty().contains(normalizedQuery, true)
+    }.take(8)
+    val matchingAssignments = if (normalizedQuery.isBlank()) emptyList() else assignments.filter { item ->
+        item.title.contains(normalizedQuery, true) ||
+            item.description.contains(normalizedQuery, true) ||
+            item.category.contains(normalizedQuery, true) ||
+            item.location.orEmpty().contains(normalizedQuery, true)
+    }.take(8)
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f).padding(horizontal = 12.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primary) {
+                        Text("AI", modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp), color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text("செய்தியாளர் உதவியாளர்", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("உங்கள் Supabase தரவுகளில் தேடுகிறது", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(onClick = onDismiss) { Text("மூடு") }
+                }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("செய்தி / இடம் / Assignment தேடுக") },
+                    placeholder = { Text("எ.கா. நாங்குநேரி, திருட்டு…") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    singleLine = true
+                )
+                if (loading) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+                if (error.isNotBlank()) {
+                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    item {
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("பின்தொடர வேண்டிய பணிகள்", fontWeight = FontWeight.Bold)
+                                if (followUpAssignments.isEmpty()) {
+                                    Text("தற்போது தனியாகக் குறிக்கப்பட்ட Follow-up Assignment இல்லை.", style = MaterialTheme.typography.bodySmall)
+                                } else {
+                                    followUpAssignments.take(5).forEach { item ->
+                                        Text("• ${item.title} — ${item.eventDate.ifBlank { "தேதி குறிப்பிடவில்லை" }}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (normalizedQuery.isNotBlank()) {
+                        item { Text("கிடைத்த செய்திகள் (${matchingNews.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+                        if (matchingNews.isEmpty()) {
+                            item { Text("இந்தச் சொல்லுக்குப் பொருந்தும் செய்தி இல்லை.", style = MaterialTheme.typography.bodySmall) }
+                        } else {
+                            items(matchingNews, key = { "news-${it.id}" }) { item ->
+                                Card {
+                                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(item.headline, fontWeight = FontWeight.SemiBold)
+                                        Text("${item.newsDate} · ${item.category}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        if (item.summary.isNotBlank()) Text(item.summary, style = MaterialTheme.typography.bodySmall, maxLines = 4)
+                                    }
+                                }
+                            }
+                        }
+                        item { Text("கிடைத்த Assignments (${matchingAssignments.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+                        if (matchingAssignments.isEmpty()) {
+                            item { Text("பொருந்தும் Assignment இல்லை.", style = MaterialTheme.typography.bodySmall) }
+                        } else {
+                            items(matchingAssignments, key = { "assignment-${it.id}" }) { item ->
+                                Card {
+                                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(item.title, fontWeight = FontWeight.SemiBold)
+                                        Text("${item.eventDate} · ${item.status}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        if (item.description.isNotBlank()) Text(item.description, style = MaterialTheme.typography.bodySmall, maxLines = 4)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        item {
+                            Text(
+                                "இது முதல் கட்ட இலவச உதவியாளர். இப்போது சேமித்த செய்திகளைத் தேடவும் Follow-up பட்டியலைப் பார்க்கவும் முடியும். இயல்பான மொழியில் பதிலளிக்கும் வெளிப்புற AI இன்னும் இணைக்கப்படவில்லை.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                Text("தகவல்கள் உங்கள் செயலியில் சேமிக்கப்பட்ட பதிவுகளிலிருந்து மட்டுமே காட்டப்படுகின்றன.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
