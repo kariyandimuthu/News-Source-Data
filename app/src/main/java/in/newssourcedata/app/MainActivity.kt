@@ -105,7 +105,7 @@ private fun AppRoot(api: SupabaseApi) {
                     profile = null
                     loginError = ""
                     page = "login"
-                },
+                }
             },
             api = api
         )
