@@ -26,6 +26,7 @@ import android.content.Intent
 import android.content.ClipboardManager
 import android.net.Uri
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
@@ -1509,31 +1510,58 @@ private fun RecordFormScreen(
                 },
                 navigationIcon = { TextButton(onClick = onBack) { Text("✕", style = MaterialTheme.typography.titleMedium) } },
                 actions = {
-                    IconButton(
-                        onClick = { imagePicker.launch("image/*") },
-                        enabled = !saving && !ocrRunning
-                    ) {
-                        if (ocrRunning) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        else Icon(Icons.Default.DocumentScanner, contentDescription = "படத்திலிருந்து உரை எடுக்க", tint = MaterialTheme.colorScheme.primary)
+                    Box {
+                        IconButton(
+                            onClick = { ocrMenuExpanded = true },
+                            enabled = !saving && !ocrRunning
+                        ) {
+                            if (ocrRunning) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Default.DocumentScanner, contentDescription = "படத்திலிருந்து உரை எடுக்க", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        DropdownMenu(expanded = ocrMenuExpanded, onDismissRequest = { ocrMenuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("கேலரியில் இருந்து OCR") },
+                                onClick = { ocrMenuExpanded = false; imagePicker.launch(arrayOf("image/*")) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("கேமரா மூலம் OCR") },
+                                onClick = { ocrMenuExpanded = false; launchOcrCamera() }
+                            )
+                        }
+                    }
+                    if (tab == 0) {
+                        IconButton(
+                            onClick = { attachmentPicker.launch(arrayOf("image/*")) },
+                            enabled = !saving && selectedPhotoUri != null || !saving
+                        ) { Text("🖼", fontSize = 21.sp) }
                     }
                     Button(
                         onClick = {
-                            val resolvedTitle = if (tab == 2) title.trim() else autoTitle
                             when {
-                                resolvedTitle.isBlank() -> message = if (tab == 2) "பெயரை எழுதுங்கள்." else "செய்தியின் முதல் வரியை எழுதுங்கள்; அதுவே தலைப்பாகும்."
+                                tab == 2 && title.isBlank() -> message = "பெயரை எழுதுங்கள்."
+                                tab != 2 && details.isBlank() -> message = "செய்தியின் விவரத்தை எழுதுங்கள்."
                                 tab == 2 && phone.isBlank() && email.isBlank() -> message = "தொலைபேசி எண் அல்லது மின்னஞ்சலை எழுதுங்கள்."
                                 else -> scope.launch {
                                     saving = true
-                                    message = ""
+                                    message = if (tab == 0) "செய்தியைச் சரிபார்த்து தமிழில் தயாரிக்கிறது…" else ""
                                     try {
+                                        val sourceDetails = details.trim()
+                                        val translatedDetails = if (tab == 0) translateEnglishToTamilIfNeeded(sourceDetails) else sourceDetails
+                                        val translatedSummary = if (tab == 0) translateEnglishToTamilIfNeeded(summary.trim()) else summary.trim()
+                                        val resolvedTitle = if (tab == 2) title.trim() else translatedDetails
+                                            .split(Regex("\\n\\s*\\n|\\r?\\n")).firstOrNull()?.trim().orEmpty().take(180)
+                                        if (resolvedTitle.isBlank()) throw IllegalStateException("செய்தியின் தலைப்பை உருவாக்க முடியவில்லை.")
+                                        details = translatedDetails
+                                        summary = translatedSummary
                                         val savedDetails = if (tab == 1 && (startTime.isNotBlank() || endTime.isNotBlank())) {
-                                            stripSavedEventTime(details).trim() + "\n\nநிகழ்வு நேரம்: ${startTime.ifBlank { "குறிப்பிடப்படவில்லை" }} - ${endTime.ifBlank { "குறிப்பிடப்படவில்லை" }}"
-                                        } else details.trim()
+                                            stripSavedEventTime(translatedDetails).trim() + "\n\nநிகழ்வு நேரம்: ${startTime.ifBlank { "குறிப்பிடப்படவில்லை" }} - ${endTime.ifBlank { "குறிப்பிடப்படவில்லை" }}"
+                                        } else translatedDetails
                                         onSave(RecordForm(
-                                            title = resolvedTitle, details = savedDetails, summary = summary.trim(), date = date,
+                                            title = resolvedTitle, details = savedDetails, summary = translatedSummary, date = date,
                                             districtId = districtId.takeIf { it.isNotBlank() }, category = category, priority = priority,
                                             location = location.trim(), designation = designation.trim(), organization = organization.trim(),
-                                            phone = phone.trim(), email = email.trim(), notes = notes.trim()
+                                            phone = phone.trim(), email = email.trim(), notes = notes.trim(),
+                                            attachmentPaths = initialForm?.attachmentPaths.orEmpty(), photoUri = selectedPhotoUri
                                         ))
                                     } catch (error: Exception) {
                                         message = error.message ?: "சேமிக்க முடியவில்லை."
@@ -1579,6 +1607,24 @@ private fun RecordFormScreen(
                 EditorLine(notes, { notes = it }, "குறிப்புகள்")
                 AssistChip(onClick = { showDistrictPicker = true }, label = { Text("⌖  $selectedDistrictName") }, shape = RoundedCornerShape(14.dp))
             } else {
+                if (tab == 0 && selectedPhotoUri != null) {
+                    val chosenPhoto = selectedPhotoUri
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AndroidView(
+                            factory = { viewContext -> ImageView(viewContext).apply {
+                                scaleType = ImageView.ScaleType.CENTER_CROP
+                                setImageURI(chosenPhoto)
+                            } },
+                            update = { it.setImageURI(chosenPhoto) },
+                            modifier = Modifier.size(76.dp).clip(RoundedCornerShape(10.dp))
+                        )
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("செய்திப் புகைப்படம்", style = MaterialTheme.typography.labelLarge)
+                            Text("சேமிக்கும்போது சிறிய JPG அளவுக்கு சுருக்கப்படும்.", style = MaterialTheme.typography.labelSmall)
+                        }
+                        TextButton(onClick = { selectedPhotoUri = null }) { Text("நீக்கு") }
+                    }
+                }
                 if (autoTitle.isNotBlank()) {
                     Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(horizontal = 13.dp, vertical = 10.dp)) {
@@ -1745,6 +1791,256 @@ private suspend fun performTamilEnglishOcr(context: Context, uri: Uri): String =
     }
 }
 
+
+
+@Composable
+private fun NewsPhotoStrip(api: SupabaseApi, paths: List<String>) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+        paths.forEach { path ->
+            var bitmap by remember(path) { mutableStateOf<Bitmap?>(null) }
+            LaunchedEffect(path) {
+                bitmap = withContext(Dispatchers.IO) {
+                    runCatching { BitmapFactory.decodeByteArray(api.getNewsPhotoBytes(path), 0, api.getNewsPhotoBytes(path).size) }.getOrNull()
+                }
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(82.dp)) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap!!.asImageBitmap(),
+                        contentDescription = "செய்திப் புகைப்படம்",
+                        modifier = Modifier.size(width = 82.dp, height = 64.dp).clip(RoundedCornerShape(9.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Surface(modifier = Modifier.size(width = 82.dp, height = 64.dp), shape = RoundedCornerShape(9.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                        Box(contentAlignment = Alignment.Center) { Text("🖼", fontSize = 21.sp) }
+                    }
+                }
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                val filename = api.downloadNewsPhoto(context, path)
+                                Toast.makeText(context, "Downloads/NewsSourceData/$filename", Toast.LENGTH_LONG).show()
+                            } catch (error: Exception) {
+                                Toast.makeText(context, error.message ?: "படத்தைப் பதிவிறக்க முடியவில்லை.", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp)
+                ) { Text("↓ பதிவிறக்கு", style = MaterialTheme.typography.labelSmall, maxLines = 1) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteVideoThumbnail(url: String, modifier: Modifier = Modifier) {
+    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = url) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = URL(url).openConnection().apply {
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                }
+                connection.getInputStream().use { BitmapFactory.decodeStream(it) }
+            }.getOrNull()
+        }
+    }
+    if (bitmap != null) {
+        Image(bitmap = bitmap!!.asImageBitmap(), contentDescription = "YouTube preview", modifier = modifier.clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
+    } else {
+        Surface(modifier = modifier, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+            Box(contentAlignment = Alignment.Center) { Text("▶", fontSize = 26.sp, color = MaterialTheme.colorScheme.primary) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StockVideosScreen(api: SupabaseApi, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var videos by remember { mutableStateOf<List<StockVideoRecord>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var saving by remember { mutableStateOf(false) }
+    var showNewVideo by remember { mutableStateOf(false) }
+    var videoUrl by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("") }
+
+    fun pasteClipboardLink() {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val copied = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty().trim()
+        videoUrl = copied
+    }
+    fun loadVideos() {
+        scope.launch {
+            loading = true
+            message = ""
+            try { videos = api.getStockVideos() }
+            catch (error: Exception) { message = error.message ?: "வீடியோக்களைப் பெற முடியவில்லை." }
+            finally { loading = false }
+        }
+    }
+    fun openVideo(url: String, download: Boolean = false) {
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            .onFailure { Toast.makeText(context, "YouTube-ஐத் திறக்க முடியவில்லை.", Toast.LENGTH_LONG).show() }
+        if (download) {
+            Toast.makeText(context, "YouTube-இல் Download வசதி இருந்தால் அதைப் பயன்படுத்தவும். சில வீடியோக்களுக்கு Premium அல்லது உரிமை தேவைப்படலாம்.", Toast.LENGTH_LONG).show()
+        }
+    }
+    LaunchedEffect(Unit) { loadVideos() }
+
+    if (showNewVideo) {
+        AlertDialog(
+            onDismissRequest = { if (!saving) showNewVideo = false },
+            title = { Text("புதிய வீடியோ") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = videoUrl,
+                        onValueChange = { videoUrl = it; message = "" },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("YouTube இணைப்பு") },
+                        placeholder = { Text("காப்பி செய்த இணைப்பை இங்கே ஒட்டுங்கள்") },
+                        singleLine = true
+                    )
+                    extractYouTubeVideoId(videoUrl)?.let { id ->
+                        RemoteVideoThumbnail("https://i.ytimg.com/vi/$id/hqdefault.jpg", Modifier.fillMaxWidth().height(150.dp))
+                    }
+                    Text("தலைப்பு YouTube-இலிருந்து தானாகப் பெறப்படும்; தனியாகத் தலைப்பு எழுதத் தேவையில்லை.", style = MaterialTheme.typography.bodySmall)
+                    if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !saving && extractYouTubeVideoId(videoUrl) != null,
+                    onClick = {
+                        scope.launch {
+                            saving = true
+                            message = ""
+                            try {
+                                api.saveStockVideo(videoUrl)
+                                videoUrl = ""
+                                showNewVideo = false
+                                loadVideos()
+                            } catch (error: Exception) {
+                                message = error.message ?: "வீடியோவைச் சேமிக்க முடியவில்லை."
+                            } finally { saving = false }
+                        }
+                    }
+                ) { if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("சேமி") }
+            },
+            dismissButton = { TextButton(onClick = { showNewVideo = false }, enabled = !saving) { Text("ரத்து") } }
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("Stock Videos", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("YouTube இணைப்புகளின் சேமிப்பு", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
+                navigationIcon = { TextButton(onClick = onBack) { Text("← திரும்ப") } },
+                actions = {
+                    IconButton(onClick = { pasteClipboardLink(); showNewVideo = true }) { Text("＋🎬", fontSize = 19.sp) }
+                }
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { pasteClipboardLink(); showNewVideo = true },
+                shape = RoundedCornerShape(16.dp)
+            ) { Text("＋🎬", fontSize = 19.sp) }
+        }
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("YouTube இணைப்பை காப்பி செய்து +🎬 பட்டனை அழுத்துங்கள். இணைப்பு இருந்தால் அது தானாக நிரப்பப்படும்.", style = MaterialTheme.typography.bodySmall)
+            Text("பதிவிறக்கம் YouTube-இன் அதிகாரப்பூர்வ வசதி கிடைக்கும் வீடியோக்களுக்கு மட்டும் YouTube-ல் செய்யப்படும்.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (message.isNotBlank() && !showNewVideo) Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            if (loading && videos.isEmpty()) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            } else if (videos.isEmpty()) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { EmptyListMessage("இன்னும் Stock Video இணைப்புகள் இல்லை. +🎬 பொத்தானை அழுத்துங்கள்.") }
+            } else {
+                LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(videos, key = { it.id }) { video ->
+                        ElevatedCard(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                RemoteVideoThumbnail(video.thumbnailUrl, Modifier.fillMaxWidth().height(170.dp))
+                                Text(video.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Text(video.youtubeUrl, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Button(onClick = { openVideo(video.youtubeUrl) }, modifier = Modifier.weight(1f)) { Text("▶ பார்க்க") }
+                                    OutlinedButton(onClick = { openVideo(video.youtubeUrl, true) }, modifier = Modifier.weight(1f)) { Text("↓ Download") }
+                                    TextButton(onClick = {
+                                        scope.launch {
+                                            try {
+                                                api.deleteStockVideo(video.id)
+                                                videos = api.getStockVideos()
+                                            } catch (error: Exception) {
+                                                message = error.message ?: "வீடியோ இணைப்பை நீக்க முடியவில்லை."
+                                            }
+                                        }
+                                    }) { Text("நீக்கு") }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun extractYouTubeVideoId(raw: String): String? {
+    val uri = runCatching { java.net.URI(raw.trim()) }.getOrNull() ?: return null
+    val host = uri.host?.lowercase(Locale.ROOT)?.removePrefix("www.") ?: return null
+    if (host !in setOf("youtube.com", "m.youtube.com", "youtu.be", "youtube-nocookie.com")) return null
+    val candidate = when {
+        host == "youtu.be" -> uri.path.trim('/').substringBefore("/")
+        uri.path == "/watch" -> uri.rawQuery.orEmpty().split("&").firstOrNull { it.startsWith("v=") }?.substringAfter("v=")
+        uri.path.startsWith("/shorts/") -> uri.path.removePrefix("/shorts/").substringBefore("/")
+        uri.path.startsWith("/embed/") -> uri.path.removePrefix("/embed/").substringBefore("/")
+        else -> null
+    }
+    return candidate?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
+}
+
+private suspend fun translateEnglishToTamilIfNeeded(text: String): String {
+    if (text.isBlank()) return text
+    val englishLetters = Regex("[A-Za-z]").findAll(text).count()
+    val tamilLetters = Regex("[\\u0B80-\\u0BFF]").findAll(text).count()
+    if (englishLetters < 24 || englishLetters <= tamilLetters) return text
+
+    val translator = Translation.getClient(
+        TranslatorOptions.Builder()
+            .setSourceLanguage(TranslateLanguage.ENGLISH)
+            .setTargetLanguage(TranslateLanguage.TAMIL)
+            .build()
+    )
+    try {
+        translator.downloadModelIfNeeded(DownloadConditions.Builder().build()).awaitMlKit()
+        val translated = translator.translate(text).awaitMlKit().trim()
+        if (translated.isBlank()) throw IllegalStateException("தமிழ் மொழிபெயர்ப்பு வெறுமையாக உள்ளது.")
+        return translated
+    } catch (error: Exception) {
+        throw IllegalStateException("ஆங்கில செய்தியை தமிழில் மொழிபெயர்க்க முடியவில்லை. இணைய இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும். ${error.message.orEmpty()}")
+    } finally {
+        translator.close()
+    }
+}
+
+private suspend fun <T> Task<T>.awaitMlKit(): T = suspendCancellableCoroutine { continuation ->
+    addOnSuccessListener { value -> if (continuation.isActive) continuation.resume(value) }
+    addOnFailureListener { error -> if (continuation.isActive) continuation.resumeWithException(error) }
+    addOnCanceledListener { if (continuation.isActive) continuation.cancel() }
+}
 
 @Composable
 private fun AiAssistantDialog(
