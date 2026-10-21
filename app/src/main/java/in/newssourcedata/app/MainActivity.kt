@@ -606,23 +606,35 @@ private fun MainAppScreen(
             onSave = { form ->
                 val targetTab = activeFormTab ?: selectedTab
                 val editId = activeEditId
-                when (targetTab) {
-                    0 -> if (editId == null) {
-                        api.addNews(form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location)
-                    } else {
-                        api.updateNews(editId, form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location)
+                var uploadedPhotoPath: String? = null
+                try {
+                    if (targetTab == 0 && form.photoUri != null) {
+                        statusMessage = "புகைப்படத்தைச் சுருக்கி பதிவேற்றுகிறது…"
+                        uploadedPhotoPath = api.uploadNewsPhoto(form.photoUri)
                     }
-                    1 -> if (editId == null) {
-                        api.addAssignment(form.title, form.details, form.date, form.districtId, form.category, form.priority, form.location)
-                    } else {
-                        api.updateAssignment(editId, form.title, form.details, form.date, form.districtId, form.category, form.priority, form.location)
+                    val attachmentPaths = (form.attachmentPaths + listOfNotNull(uploadedPhotoPath)).distinct()
+                    when (targetTab) {
+                        0 -> if (editId == null) {
+                            api.addNews(form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location, attachmentPaths)
+                        } else {
+                            api.updateNews(editId, form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location, attachmentPaths)
+                        }
+                        1 -> if (editId == null) {
+                            api.addAssignment(form.title, form.details, form.date, form.districtId, form.category, form.priority, form.location)
+                        } else {
+                            api.updateAssignment(editId, form.title, form.details, form.date, form.districtId, form.category, form.priority, form.location)
+                        }
+                        else -> if (editId == null) {
+                            api.addContact(form.title, form.designation, form.organization, form.phone, form.email, form.districtId, form.notes)
+                        } else {
+                            api.updateContact(editId, form.title, form.designation, form.organization, form.phone, form.email, form.districtId, form.notes)
+                        }
                     }
-                    else -> if (editId == null) {
-                        api.addContact(form.title, form.designation, form.organization, form.phone, form.email, form.districtId, form.notes)
-                    } else {
-                        api.updateContact(editId, form.title, form.designation, form.organization, form.phone, form.email, form.districtId, form.notes)
-                    }
+                } catch (error: Exception) {
+                    uploadedPhotoPath?.let { path -> runCatching { api.deleteNewsPhoto(path) } }
+                    throw error
                 }
+                statusMessage = if (uploadedPhotoPath != null) "செய்தியும் புகைப்படமும் சேமிக்கப்பட்டன." else ""
                 refreshVersion += 1
                 activeFormTab = null
                 activeEditId = null
@@ -1256,34 +1268,85 @@ private fun RecordFormScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var ocrRunning by remember { mutableStateOf(false) }
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            scope.launch {
-                ocrRunning = true
-                message = ""
-                try {
-                    val recognizedText = performTamilEnglishOcr(context, uri).trim()
-                    if (recognizedText.isBlank()) {
-                        message = "படத்தில் வாசிக்கக்கூடிய உரை கிடைக்கவில்லை."
-                    } else {
-                        when (tab) {
-                            0, 1 -> details = if (details.isBlank()) recognizedText else details.trimEnd() + "\n\n" + recognizedText
-                            else -> {
-                                val firstLine = recognizedText.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
-                                if (title.isBlank()) title = firstLine.take(150)
-                                val detectedPhone = Regex("(?<!\\d)(?:\\+?\\d[\\d\\s().-]{7,}\\d)(?!\\d)").find(recognizedText)?.value?.trim()
-                                if (phone.isBlank()) phone = detectedPhone.orEmpty()
-                                notes = if (notes.isBlank()) recognizedText else notes.trimEnd() + "\n\n" + recognizedText
-                            }
+    var ocrMenuExpanded by remember { mutableStateOf(false) }
+    var selectedPhotoUri by remember(tab, initialForm) { mutableStateOf(initialForm?.photoUri) }
+    var pendingCameraOcrFile by remember { mutableStateOf<File?>(null) }
+    var pendingCameraOcrUri by remember { mutableStateOf<Uri?>(null) }
+
+    fun processOcr(uri: Uri, temporaryFile: File? = null) {
+        scope.launch {
+            ocrRunning = true
+            message = ""
+            try {
+                val recognizedText = performTamilEnglishOcr(context, uri).trim()
+                if (recognizedText.isBlank()) {
+                    message = "படத்தில் வாசிக்கக்கூடிய உரை கிடைக்கவில்லை."
+                } else {
+                    when (tab) {
+                        0, 1 -> details = if (details.isBlank()) recognizedText else details.trimEnd() + "\n\n" + recognizedText
+                        else -> {
+                            val firstLine = recognizedText.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+                            if (title.isBlank()) title = firstLine.take(150)
+                            val detectedPhone = Regex("(?<!\\d)(?:\\+?\\d[\\d\\s().-]{7,}\\d)(?!\\d)").find(recognizedText)?.value?.trim()
+                            if (phone.isBlank()) phone = detectedPhone.orEmpty()
+                            notes = if (notes.isBlank()) recognizedText else notes.trimEnd() + "\n\n" + recognizedText
                         }
-                        message = "படத்திலிருந்து உரை எடுக்கப்பட்டது. சரிபார்த்து சேமிக்கவும்."
                     }
-                } catch (error: Exception) {
-                    message = error.message ?: "OCR செய்ய முடியவில்லை. மீண்டும் முயற்சிக்கவும்."
-                } finally {
-                    ocrRunning = false
+                    message = "படத்திலிருந்து உரை எடுக்கப்பட்டது. சரிபார்த்து சேமிக்கவும்."
+                }
+            } catch (error: Exception) {
+                message = error.message ?: "OCR செய்ய முடியவில்லை. மீண்டும் முயற்சிக்கவும்."
+            } finally {
+                ocrRunning = false
+                temporaryFile?.delete()
+                if (temporaryFile != null && temporaryFile == pendingCameraOcrFile) {
+                    pendingCameraOcrFile = null
+                    pendingCameraOcrUri = null
                 }
             }
+        }
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) processOcr(uri)
+    }
+    val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            selectedPhotoUri = uri
+            message = "படம் இணைக்கப்பட்டது. பதிவேற்றும்போது தானாகச் சுருக்கப்படும்."
+        }
+    }
+    val cameraOcrLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
+        val capturedUri = pendingCameraOcrUri
+        val capturedFile = pendingCameraOcrFile
+        if (captured && capturedUri != null && capturedFile != null) {
+            processOcr(capturedUri, capturedFile)
+        } else {
+            capturedFile?.delete()
+            pendingCameraOcrFile = null
+            pendingCameraOcrUri = null
+            if (!captured) message = "கேமரா படம் எடுக்கப்படவில்லை."
+        }
+    }
+    fun launchOcrCamera() {
+        try {
+            val directory = File(context.cacheDir, "ocr-captures")
+            if (!directory.exists() && !directory.mkdirs()) {
+                throw IllegalStateException("கேமரா தற்காலிக கோப்புறையை உருவாக்க முடியவில்லை.")
+            }
+            val file = File(directory, "ocr-${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            pendingCameraOcrFile = file
+            pendingCameraOcrUri = uri
+            cameraOcrLauncher.launch(uri)
+        } catch (error: Exception) {
+            pendingCameraOcrFile?.delete()
+            pendingCameraOcrFile = null
+            pendingCameraOcrUri = null
+            message = error.message ?: "கேமராவைத் திறக்க முடியவில்லை."
         }
     }
     val datePickerState = rememberDatePickerState(initialSelectedDateMillis = dateToMillis(date))
