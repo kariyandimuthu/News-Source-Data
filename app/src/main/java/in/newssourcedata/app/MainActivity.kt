@@ -473,7 +473,7 @@ private fun MainAppScreen(
     val context = LocalContext.current
 
     if (showStockVideos) {
-        StockVideosScreen(api = api, onBack = { showStockVideos = false })
+        StockVideosScreen(api = api, onBack = { showStockVideos = false; refreshVersion += 1 })
         return
     }
 
@@ -663,8 +663,10 @@ private fun MainAppScreen(
 
     if (showAiAssistant) {
         AiAssistantDialog(
+            api = api,
             news = aiNews,
             assignments = aiAssignments,
+            stockVideos = aiStockVideos,
             loading = aiLoading,
             error = aiError,
             onDismiss = { showAiAssistant = false }
@@ -826,6 +828,27 @@ private fun MainAppScreen(
             if (statusMessage.isNotBlank()) {
                 Text(statusMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, maxLines = 2)
                 TextButton(onClick = { refreshVersion += 1 }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) { Text("மீண்டும் முயற்சி") }
+            }
+            if (!loading && matchingStockVideos.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "ஸ்டாக் வீடியோ முடிவுகள் (" + matchingStockVideos.size + ")",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { showStockVideos = true }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                        Text("எல்லாம்")
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    matchingStockVideos.forEach { video ->
+                        StockVideoSearchCard(api = api, video = video, compact = true)
+                    }
+                }
             }
             if (loading) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
