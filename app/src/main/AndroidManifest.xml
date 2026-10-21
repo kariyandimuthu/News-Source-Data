@@ -4,7 +4,9 @@
 
     <application
         android:allowBackup="false"
-        android:label="News Source Data"
+        android:label="News Source"
+        android:icon="@drawable/ic_news_source_logo"
+        android:roundIcon="@drawable/ic_news_source_logo"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
             android:name=".MainActivity"
