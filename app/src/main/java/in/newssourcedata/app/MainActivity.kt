@@ -61,7 +61,6 @@ class MainActivity : ComponentActivity() {
  }
 }
 private data class Entry(val id:String,val title:String,val body:String,val meta:String="",val date:String="",val phone:String="",val startTime:String="",val endDate:String="",val endTime:String="")
-private data class Member(val id:String,val email:String,val name:String,val status:String)
 private val departments = listOf("காவல்","கோயில்","காலநிலை","கல்வி","மருத்துவம்","அரசியல்","உள்ளாட்சி","விபத்து","பொது")
 private val categories = listOf("குற்றம்","விபத்து","செய்தியாளர் சந்திப்பு","அரசு அறிவிப்பு","நிகழ்ச்சி","மக்கள் பிரச்சினை","மற்றவை")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,8 +68,8 @@ private val categories = listOf("குற்றம்","விபத்து",
  val context=LocalContext.current
  val api= remember { SupabaseClient(context.applicationContext) }
  val scope= rememberCoroutineScope()
- var signed by remember { mutableStateOf(false) }; var isAdmin by remember { mutableStateOf(false) }; var memberDialog by remember { mutableStateOf(false) }; var pendingMembers by remember { mutableStateOf(listOf<Member>()) }
- var email by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }; var signup by remember { mutableStateOf(false) }
+ var signed by remember { mutableStateOf(false) }; var isAdmin by remember { mutableStateOf(false) }
+ var email by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }
  var tab by remember { mutableIntStateOf(0) }; var form by remember { mutableStateOf(false) }; var formStep by remember { mutableIntStateOf(0) }
  var editingId by remember { mutableStateOf<String?>(null) }; var showAddMenu by remember { mutableStateOf(false) }
  var title by remember { mutableStateOf("") }; var body by remember { mutableStateOf("") }
@@ -97,9 +96,12 @@ private val categories = listOf("குற்றம்","விபத்து",
  }
  LaunchedEffect(Unit) {
   diagnostic="முந்தைய உள்நுழைவு நிலை சரிபார்க்கப்படுகிறது"
-  if(api.isSignedIn) { try { diagnostic="Supabase சுயவிவரம் பெறப்படுகிறது"; val profile=withContext(Dispatchers.IO){api.currentProfile()}; val status=profile.optString("approval_status"); signed=status=="approved"; isAdmin=signed && profile.optString("role")=="owner"; diagnostic="சுயவிவரம் கிடைத்தது; role="+profile.optString("role")+"; status="+status; if(!signed){api.signOut();message=when(status){"pending"->"உங்கள் கணக்கு நிர்வாகி அனுமதிக்காக காத்திருக்கிறது.";"rejected"->"உங்கள் கணக்கு நிராகரிக்கப்பட்டுள்ளது.";"revoked"->"உங்கள் அணுகல் ரத்து செய்யப்பட்டுள்ளது.";else->"செயலியைப் பயன்படுத்த அனுமதி இல்லை."} } } catch(e:Exception){api.signOut();signed=false;message=e.message ?: "அனுமதியைச் சரிபார்க்க முடியவில்லை"} }
+  // Personal mode: retain the one existing login; no member approval flow.
+  signed=api.isSignedIn
+  isAdmin=false
+  if(signed) diagnostic="சேமிக்கப்பட்ட தனிப்பட்ட உள்நுழைவு கிடைத்தது"
  }
- fun refreshPending() { scope.launch { try { pendingMembers=withContext(Dispatchers.IO){ val a=api.pendingProfiles(); (0 until a.length()).map { i->val o=a.getJSONObject(i); Member(o.optString("id"),o.optString("email"),o.optString("display_name"),o.optString("approval_status")) } }; memberDialog=true } catch(e:Exception){message=e.message ?: "நிலுவை கணக்குகளைப் பெற முடியவில்லை"} } }
+
  fun load() { scope.launch { busy=true; diagnostic="தரவு ஏற்றப்படுகிறது: tab="+tab; Log.i("NewsSourceDataCrash", "Loading tab=" + tab); try { rows=withContext(Dispatchers.IO) { val table=listOf("news_items","assignments","contacts")[tab]; Log.i("NewsSourceDataCrash", "Fetching table=" + table); val a=api.list(table); Log.i("NewsSourceDataCrash", "Fetched table=" + table + " count=" + a.length()); (0 until a.length()).mapNotNull { i -> val o=a.getJSONObject(i); when(tab) { 0->Entry(o.optString("id"),o.optString("headline"),o.optString("body"),o.optString("category"),o.optString("news_date")); 1->{ val d=o.optString("description"); val date=Regex("\\[DATE:([^]]+)]").find(d)?.groupValues?.get(1) ?: ""; val startTime=Regex("\\[STARTTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: Regex("\\[TIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val endDate=Regex("\\[ENDDATE:([^]]*)]").find(d)?.groupValues?.get(1) ?: date; val endTime=Regex("\\[ENDTIME:([^]]*)]").find(d)?.groupValues?.get(1) ?: ""; val expired=try { if(endDate.isNotBlank()&&endTime.isNotBlank()) { val end=SimpleDateFormat("yyyy-MM-dd HH:mm",Locale.US).parse("$endDate $endTime"); end!=null && end.before(Date()) } else false } catch(_:Exception){false}; val id=o.optString("id"); if(expired) { try { api.delete("assignments",id) } catch(_:Exception) { }; null } else { val clean=d.replace(Regex("\\[(DATE|TIME|STARTTIME|ENDDATE|ENDTIME|PLACE):[^]]*]\\s*"),"").replace(Regex("(?m)^\\\\n+"),"").replace("\\\\n","\n").replace(Regex("\\\\n+"),"\n").trim(); Entry(id,o.optString("title"),clean,o.optString("category"),date,"",startTime,endDate,endTime) } }; else->Entry(o.optString("id"),o.optString("full_name"),o.optString("phone"),o.optString("notes"),"",o.optString("phone")) } } }.sortedWith(compareByDescending<Entry> { it.date.ifBlank{"0000-00-00"} }.thenByDescending { it.id }); message=""; diagnostic="தரவு ஏற்றம் முடிந்தது: "+rows.size+" பதிவுகள்" } catch(e:Exception){ Log.e("NewsSourceDataCrash", "Data load failed for tab=" + tab, e); diagnostic="தரவு ஏற்றப் பிழை: "+(e.message ?: e.javaClass.simpleName); message=e.message ?: "தரவைப் பெற முடியவில்லை" }; busy=false } }
  fun clearForm() { editingId=null; title=""; body=""; category="மற்றவை"; customCategory=""; department="காவல்"; district="திருநெல்வேலி"; eventDate=SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()); eventTime=""; eventEndTime=""; eventEndDate=eventDate; eventPlace=""; contactExtra=""; formStep=0 }
  fun startEntry(which:Int) { tab=which; clearForm(); form=true; showAddMenu=false; message="" }
@@ -123,15 +125,17 @@ private val categories = listOf("குற்றம்","விபத்து",
   Scaffold { p-> Box(Modifier.fillMaxSize().padding(p).padding(24.dp),contentAlignment=androidx.compose.ui.Alignment.Center) { Column(Modifier.fillMaxWidth().widthIn(max=420.dp),verticalArrangement=Arrangement.spacedBy(12.dp),horizontalAlignment=androidx.compose.ui.Alignment.CenterHorizontally) {
    Surface(shape=MaterialTheme.shapes.extraLarge,color=MaterialTheme.colorScheme.primary,modifier=Modifier.size(68.dp)) { Box(contentAlignment=androidx.compose.ui.Alignment.Center) { Text("N",fontSize=42.sp,fontWeight=FontWeight.Black,color=MaterialTheme.colorScheme.onPrimary) } }
    Text("News Source Data",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold,textAlign=TextAlign.Center)
-   Text(if(signup) "புதிய கணக்கு உருவாக்கு" else "உள்நுழைக",style=MaterialTheme.typography.titleLarge)
+   Text("உள்நுழைக",style=MaterialTheme.typography.titleLarge)
    OutlinedTextField(email,{email=it},Modifier.fillMaxWidth(),label={Text("மின்னஞ்சல்")},singleLine=true)
    OutlinedTextField(password,{password=it},Modifier.fillMaxWidth(),label={Text("கடவுச்சொல் (குறைந்தது 6 எழுத்துகள்)")},singleLine=true)
    Button(enabled=!busy&&email.trim().contains("@")&&password.length>=6,onClick={scope.launch {
     busy=true; message=""
     try {
-     diagnostic="லாகின் கோரிக்கை அனுப்பப்படுகிறது"; Log.i("NewsSourceDataCrash", "Login started; signup=" + signup)
-     withContext(Dispatchers.IO){if(signup) api.signUp(email,password) else api.signIn(email,password)}
-     if(api.isSignedIn) { val profile=withContext(Dispatchers.IO){api.currentProfile()}; val status=profile.optString("approval_status"); Log.i("NewsSourceDataCrash", "Profile loaded; status=" + status + " role=" + profile.optString("role")); diagnostic="சுயவிவரம்: role="+profile.optString("role")+"; status="+status; if(status=="approved"){signed=true;isAdmin=profile.optString("role")=="owner";message=""; diagnostic="லாகின் வெற்றி; முகப்புத் திரை திறக்கப்படுகிறது"} else {api.signOut();signed=false;message=when(status){"pending"->"கணக்கு உருவாக்கப்பட்டது. நிர்வாகி அனுமதி வழங்கிய பின் உள்நுழையலாம்.";"rejected"->"உங்கள் கணக்கு நிராகரிக்கப்பட்டுள்ளது.";"revoked"->"உங்கள் அணுகல் ரத்து செய்யப்பட்டுள்ளது.";else->"மின்னஞ்சல் உறுதிப்படுத்தல் தேவை. உறுதிப்படுத்திய பின் உள்நுழையவும்."}} } else { signed=false; message="மின்னஞ்சல் உறுதிப்படுத்தல் தேவை. உங்கள் மின்னஞ்சலைச் சரிபார்க்கவும்." }
+     diagnostic="தனிப்பட்ட உள்நுழைவு கோரிக்கை அனுப்பப்படுகிறது"; Log.i("NewsSourceDataCrash", "Personal login started")
+     withContext(Dispatchers.IO){api.signIn(email,password)}
+     signed=api.isSignedIn
+     isAdmin=false
+     if(signed) { message=""; diagnostic="உள்நுழைவு வெற்றி; முகப்புத் திரை திறக்கப்படுகிறது" } else { message="உள்நுழைவு உறுதிப்படுத்தப்படவில்லை. மீண்டும் முயற்சிக்கவும்." }
     } catch(e:Exception) {
      Log.e("NewsSourceDataCrash", "Login/profile check failed", e)
      diagnostic="லாகின் பிழை: "+(e.message ?: e.javaClass.simpleName)
@@ -144,10 +148,9 @@ private val categories = listOf("குற்றம்","விபத்து",
     } finally { busy=false }
    }},modifier=Modifier.fillMaxWidth()){
     if(busy) { CircularProgressIndicator(Modifier.size(18.dp),strokeWidth=2.dp); Spacer(Modifier.width(8.dp)) }
-    Text(if(busy)"சரிபார்க்கிறது…" else if(signup)"கணக்கு உருவாக்கு" else "உள்நுழை")
+    Text(if(busy)"சரிபார்க்கிறது…" else "உள்நுழை")
    }
-   TextButton(enabled=!busy,onClick={signup=!signup;message=""}){Text(if(signup)"உள்நுழைக" else "புதிய கணக்கு உருவாக்கவும்")}
-   if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.error)
+      if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.error)
    Text("நிலை: "+diagnostic,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
    Spacer(Modifier.height(18.dp))
    Text("Created For News Source WhatsApp Group",style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.Bold,textAlign=TextAlign.Center,color=MaterialTheme.colorScheme.primary)
@@ -156,7 +159,7 @@ private val categories = listOf("குற்றம்","விபத்து",
  }
  if(signed) {
  Scaffold(
-  topBar={TopAppBar(title={if(form) Text(listOf("புதிய செய்தி","புதிய அசைன்மென்ட்","புதிய தொடர்பு")[tab]) else Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(9.dp)) { Surface(shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.primary,modifier=Modifier.size(38.dp)) { Box(contentAlignment=androidx.compose.ui.Alignment.Center) { Text("N",style=TextStyle(brush=Brush.linearGradient(listOf(MaterialTheme.colorScheme.onPrimary,MaterialTheme.colorScheme.tertiary)),fontWeight=FontWeight.Black,fontSize=24.sp)) } }; Column(verticalArrangement=Arrangement.spacedBy(0.dp)) { Text("News Source Data", style=TextStyle(brush=Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary)), fontWeight=FontWeight.ExtraBold, letterSpacing=0.3.sp)); Text("NEWS • ASSIGNMENTS • CONTACTS", style=MaterialTheme.typography.labelSmall, color=MaterialTheme.colorScheme.onSurfaceVariant) } }},navigationIcon={if(form) TextButton(onClick={form=false;formStep=0;editingId=null}){Text("ரத்து")} },actions={if(!form) { if(isAdmin) TextButton(onClick={refreshPending()}){Text("அனுமதிகள்")}; TextButton(onClick={load()}){Text("↻")}; TextButton(onClick={api.signOut();signed=false;isAdmin=false}){Text("⇥")} }})},
+  topBar={TopAppBar(title={if(form) Text(listOf("புதிய செய்தி","புதிய அசைன்மென்ட்","புதிய தொடர்பு")[tab]) else Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(9.dp)) { Surface(shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.primary,modifier=Modifier.size(38.dp)) { Box(contentAlignment=androidx.compose.ui.Alignment.Center) { Text("N",style=TextStyle(brush=Brush.linearGradient(listOf(MaterialTheme.colorScheme.onPrimary,MaterialTheme.colorScheme.tertiary)),fontWeight=FontWeight.Black,fontSize=24.sp)) } }; Column(verticalArrangement=Arrangement.spacedBy(0.dp)) { Text("News Source Data", style=TextStyle(brush=Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary)), fontWeight=FontWeight.ExtraBold, letterSpacing=0.3.sp)); Text("NEWS • ASSIGNMENTS • CONTACTS", style=MaterialTheme.typography.labelSmall, color=MaterialTheme.colorScheme.onSurfaceVariant) } }},navigationIcon={if(form) TextButton(onClick={form=false;formStep=0;editingId=null}){Text("ரத்து")} },actions={if(!form) { TextButton(onClick={load()}){Text("↻")}; TextButton(onClick={api.signOut();signed=false;isAdmin=false}){Text("⇥")} }})},
   bottomBar={if(!form) NavigationBar(containerColor=MaterialTheme.colorScheme.surface, tonalElevation=8.dp) { listOf("செய்திகள்","அசைன்மென்ட்","தொடர்புகள்").forEachIndexed{i,l->NavigationBarItem(selected=tab==i,onClick={tab=i;form=false;search="";selectedDate="";selectedCategory="அனைத்தும்"},icon={Text(listOf("▤","▦","♧")[i],style=MaterialTheme.typography.titleLarge,fontWeight=if(tab==i) FontWeight.Bold else FontWeight.Normal)},label={Text(l,style=MaterialTheme.typography.labelMedium)})} }},
   floatingActionButton={if(form) FloatingActionButton(onClick={if(!busy && (if(tab==0) body.isNotBlank() else if(tab==1) body.isNotBlank() && (formStep==0 || (eventTime.isNotBlank() && eventEndTime.isNotBlank())) else title.isNotBlank()&&body.isNotBlank())) { if(tab==0&&formStep==0) formStep=1 else if(tab==1&&formStep==0) formStep=1 else if(tab==0&&formStep==1) formStep=2 else saveEntry() }}){Text(if(busy)"…" else "✓",style=MaterialTheme.typography.titleLarge)} else FloatingActionButton(onClick={showAddMenu=true}){Text("+",style=MaterialTheme.typography.headlineMedium)}}
  ) { p ->
@@ -248,7 +251,7 @@ private val categories = listOf("குற்றம்","விபத்து",
   }
  }
  }
- if(memberDialog) AlertDialog(onDismissRequest={memberDialog=false},title={Text("புதிய பயனர் அனுமதிகள்")},text={Column(Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){if(pendingMembers.isEmpty()) Text("நிலுவையில் உள்ள கணக்குகள் இல்லை"); pendingMembers.forEach { m -> Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Text(m.name.ifBlank{m.email},fontWeight=FontWeight.Bold);if(m.name.isNotBlank()) Text(m.email,style=MaterialTheme.typography.bodySmall);Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){TextButton(onClick={scope.launch{try{withContext(Dispatchers.IO){api.setApproval(m.id,"approved")};pendingMembers=pendingMembers.filterNot{it.id==m.id};message="பயனருக்கு அனுமதி வழங்கப்பட்டது"}catch(e:Exception){message=e.message ?: "அனுமதி வழங்க முடியவில்லை"}}}){Text("அனுமதி")};TextButton(onClick={scope.launch{try{withContext(Dispatchers.IO){api.setApproval(m.id,"rejected")};pendingMembers=pendingMembers.filterNot{it.id==m.id}}catch(e:Exception){message=e.message ?: "நிராகரிக்க முடியவில்லை"}}}){Text("நிராகரி")}}};HorizontalDivider()} }},confirmButton={TextButton(onClick={memberDialog=false}){Text("மூடு")}})
+
  if(selectedEntry!=null) {
   val e=selectedEntry!!
   AlertDialog(onDismissRequest={selectedEntry=null},title={Text(e.title)},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){if(e.meta.isNotBlank())Text(e.meta); val detailBody=if(tab==0||tab==1) e.body.lineSequence().drop(1).joinToString("\n").trim() else e.body; Text(detailBody.ifBlank{"விவரங்கள் இல்லை"})}},confirmButton={TextButton(onClick={selectedEntry=null}){Text("மூடு")}},dismissButton={TextButton(onClick={
