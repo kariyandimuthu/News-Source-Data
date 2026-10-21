@@ -2157,8 +2157,10 @@ private suspend fun <T> Task<T>.awaitMlKit(): T = suspendCancellableCoroutine { 
 
 @Composable
 private fun AiAssistantDialog(
+    api: SupabaseApi,
     news: List<NewsRecord>,
     assignments: List<AssignmentRecord>,
+    stockVideos: List<StockVideoRecord>,
     loading: Boolean,
     error: String,
     onDismiss: () -> Unit
@@ -2183,6 +2185,11 @@ private fun AiAssistantDialog(
             item.description.contains(normalizedQuery, true) ||
             item.category.contains(normalizedQuery, true) ||
             item.location.orEmpty().contains(normalizedQuery, true)
+    }.take(8)
+    val matchingStockVideos = if (normalizedQuery.isBlank()) emptyList() else stockVideos.filter { video ->
+        video.title.contains(normalizedQuery, true) ||
+            video.fileName.orEmpty().contains(normalizedQuery, true) ||
+            video.driveUrl.contains(normalizedQuery, true)
     }.take(8)
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
