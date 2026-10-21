@@ -655,9 +655,9 @@ class SupabaseApi(context: Context) {
     private fun findDriveConfirmationToken(html: String): String? {
         val normalized = html.replace("&amp;", "&").replace("&#38;", "&")
         return Regex("""[?&]confirm=([0-9A-Za-z_-]+)""").find(normalized)?.groupValues?.getOrNull(1)
-            ?: Regex("""name=["']confirm["']\\s+value=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            ?: Regex("""name=["']confirm["']\s+value=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
                 .find(normalized)?.groupValues?.getOrNull(1)
-            ?: Regex("""download_warning[^=]*=([^;"'\\s]+)""").find(normalized)?.groupValues?.getOrNull(1)
+            ?: Regex("""download_warning[^=]*=([^;"'\s]+)""").find(normalized)?.groupValues?.getOrNull(1)
     }
 
     private fun isAllowedDriveHost(host: String): Boolean {
@@ -675,7 +675,7 @@ class SupabaseApi(context: Context) {
 
     private fun parseContentDispositionFileName(header: String?): String? {
         if (header.isNullOrBlank()) return null
-        val extended = Regex("""filename\\*=(?:UTF-8'')?([^;]+)""", RegexOption.IGNORE_CASE)
+        val extended = Regex("""filename\*=(?:UTF-8'')?([^;]+)""", RegexOption.IGNORE_CASE)
             .find(header)?.groupValues?.getOrNull(1)?.trim()?.trim('"')
         val simple = Regex("""filename=["']?([^;"']+)""", RegexOption.IGNORE_CASE)
             .find(header)?.groupValues?.getOrNull(1)?.trim()
@@ -685,7 +685,7 @@ class SupabaseApi(context: Context) {
 
     private fun safeDownloadFileName(candidate: String, mimeType: String, fileId: String): String {
         var name = candidate.substringAfterLast('/').trim()
-            .replace(Regex("""[\\\\/:*?"<>|\\p{Cntrl}]"""), "_")
+            .replace(Regex("""[\\/:*?"<>|\p{Cntrl}]"""), "_")
             .trim('.', ' ')
         if (name.isBlank() || name.equals("Google Drive", true)) name = "DriveVideo-${fileId.take(8)}"
         if (!name.contains('.')) {
