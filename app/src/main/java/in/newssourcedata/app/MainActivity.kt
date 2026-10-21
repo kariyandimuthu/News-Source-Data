@@ -1873,12 +1873,15 @@ private fun StockVideosScreen(api: SupabaseApi, onBack: () -> Unit) {
     var saving by remember { mutableStateOf(false) }
     var showNewVideo by remember { mutableStateOf(false) }
     var videoUrl by remember { mutableStateOf("") }
+    var downloadingVideoId by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf("") }
 
     fun pasteClipboardLink() {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val copied = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty().trim()
         videoUrl = copied
+        if (copied.isBlank()) message = "முதலில் Google Drive வீடியோ இணைப்பைக் காப்பி செய்யுங்கள்."
+        else if (extractGoogleDriveFileId(copied) == null) message = "காப்பி செய்யப்பட்ட இணைப்பு Google Drive வீடியோவாக இல்லை."
     }
     fun loadVideos() {
         scope.launch {
@@ -1889,11 +1892,24 @@ private fun StockVideosScreen(api: SupabaseApi, onBack: () -> Unit) {
             finally { loading = false }
         }
     }
-    fun openVideo(url: String, download: Boolean = false) {
+    fun openPreview(url: String) {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-            .onFailure { Toast.makeText(context, "YouTube-ஐத் திறக்க முடியவில்லை.", Toast.LENGTH_LONG).show() }
-        if (download) {
-            Toast.makeText(context, "YouTube-இல் Download வசதி இருந்தால் அதைப் பயன்படுத்தவும். சில வீடியோக்களுக்கு Premium அல்லது உரிமை தேவைப்படலாம்.", Toast.LENGTH_LONG).show()
+            .onFailure { Toast.makeText(context, "Google Drive preview-ஐத் திறக்க முடியவில்லை.", Toast.LENGTH_LONG).show() }
+    }
+    fun downloadVideo(video: StockVideoRecord) {
+        if (downloadingVideoId != null) return
+        scope.launch {
+            downloadingVideoId = video.id
+            message = ""
+            try {
+                val fileName = api.downloadGoogleDriveVideo(context, video)
+                Toast.makeText(context, "பதிவிறக்கம் முடிந்தது: Downloads/NewsSourceData/$fileName", Toast.LENGTH_LONG).show()
+            } catch (error: Exception) {
+                message = error.message ?: "வீடியோவைப் பதிவிறக்க முடியவில்லை."
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            } finally {
+                downloadingVideoId = null
+            }
         }
     }
     LaunchedEffect(Unit) { loadVideos() }
@@ -1908,20 +1924,20 @@ private fun StockVideosScreen(api: SupabaseApi, onBack: () -> Unit) {
                         value = videoUrl,
                         onValueChange = { videoUrl = it; message = "" },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("YouTube இணைப்பு") },
-                        placeholder = { Text("காப்பி செய்த இணைப்பை இங்கே ஒட்டுங்கள்") },
+                        label = { Text("Google Drive இணைப்பு") },
+                        placeholder = { Text("காப்பி செய்த Drive இணைப்பை இங்கே ஒட்டுங்கள்") },
                         singleLine = true
                     )
-                    extractYouTubeVideoId(videoUrl)?.let { id ->
-                        RemoteVideoThumbnail("https://i.ytimg.com/vi/$id/hqdefault.jpg", Modifier.fillMaxWidth().height(150.dp))
+                    extractGoogleDriveFileId(videoUrl)?.let { id ->
+                        RemoteVideoThumbnail("https://drive.google.com/thumbnail?id=$id&sz=w640", Modifier.fillMaxWidth().height(150.dp))
                     }
-                    Text("தலைப்பு YouTube-இலிருந்து தானாகப் பெறப்படும்; தனியாகத் தலைப்பு எழுதத் தேவையில்லை.", style = MaterialTheme.typography.bodySmall)
+                    Text("கோப்பின் பெயர் தானாகப் பெறப்படும். Download நேரடியாக Downloads/NewsSourceData கோப்புறையில் சேமிக்கப்படும்.", style = MaterialTheme.typography.bodySmall)
                     if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             },
             confirmButton = {
                 Button(
-                    enabled = !saving && extractYouTubeVideoId(videoUrl) != null,
+                    enabled = !saving && extractGoogleDriveFileId(videoUrl) != null,
                     onClick = {
                         scope.launch {
                             saving = true
@@ -1948,7 +1964,7 @@ private fun StockVideosScreen(api: SupabaseApi, onBack: () -> Unit) {
                 title = {
                     Column {
                         Text("Stock Videos", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("YouTube இணைப்புகளின் சேமிப்பு", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Google Drive வீடியோ இணைப்புகளும் நேரடி Download-உம்", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 navigationIcon = { TextButton(onClick = onBack) { Text("← திரும்ப") } },
@@ -1965,8 +1981,8 @@ private fun StockVideosScreen(api: SupabaseApi, onBack: () -> Unit) {
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("YouTube இணைப்பை காப்பி செய்து +🎬 பட்டனை அழுத்துங்கள். இணைப்பு இருந்தால் அது தானாக நிரப்பப்படும்.", style = MaterialTheme.typography.bodySmall)
-            Text("பதிவிறக்கம் YouTube-இன் அதிகாரப்பூர்வ வசதி கிடைக்கும் வீடியோக்களுக்கு மட்டும் YouTube-ல் செய்யப்படும்.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Google Drive-ல் உள்ள வீடியோ இணைப்பைக் காப்பி செய்து +🎬 பொத்தானை அழுத்துங்கள். இணைப்பு தானாக நிரப்பப்படும்; தலைப்பை தனியாக எழுத வேண்டாம்.", style = MaterialTheme.typography.bodySmall)
+            Text("பதிவிறக்கத்திற்கு கோப்பைப் பகிர்வதில் Anyone with the link (Viewer) அனுமதி மற்றும் Download அனுமதி இருக்க வேண்டும்.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (message.isNotBlank() && !showNewVideo) Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             if (loading && videos.isEmpty()) {
                 Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -1979,10 +1995,17 @@ private fun StockVideosScreen(api: SupabaseApi, onBack: () -> Unit) {
                             Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 RemoteVideoThumbnail(video.thumbnailUrl, Modifier.fillMaxWidth().height(170.dp))
                                 Text(video.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                Text(video.youtubeUrl, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                Text(video.driveUrl, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Button(onClick = { openVideo(video.youtubeUrl) }, modifier = Modifier.weight(1f)) { Text("▶ பார்க்க") }
-                                    OutlinedButton(onClick = { openVideo(video.youtubeUrl, true) }, modifier = Modifier.weight(1f)) { Text("↓ Download") }
+                                    OutlinedButton(onClick = { openPreview(video.previewUrl) }, modifier = Modifier.weight(1f)) { Text("▶ Preview") }
+                                    Button(
+                                        enabled = downloadingVideoId == null,
+                                        onClick = { downloadVideo(video) },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        if (downloadingVideoId == video.id) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                                        else Text("↓ Download")
+                                    }
                                     TextButton(onClick = {
                                         scope.launch {
                                             try {
@@ -2001,20 +2024,6 @@ private fun StockVideosScreen(api: SupabaseApi, onBack: () -> Unit) {
             }
         }
     }
-}
-
-private fun extractYouTubeVideoId(raw: String): String? {
-    val uri = runCatching { java.net.URI(raw.trim()) }.getOrNull() ?: return null
-    val host = uri.host?.lowercase(Locale.ROOT)?.removePrefix("www.") ?: return null
-    if (host !in setOf("youtube.com", "m.youtube.com", "youtu.be", "youtube-nocookie.com")) return null
-    val candidate = when {
-        host == "youtu.be" -> uri.path.trim('/').substringBefore("/")
-        uri.path == "/watch" -> uri.rawQuery.orEmpty().split("&").firstOrNull { it.startsWith("v=") }?.substringAfter("v=")
-        uri.path.startsWith("/shorts/") -> uri.path.removePrefix("/shorts/").substringBefore("/")
-        uri.path.startsWith("/embed/") -> uri.path.removePrefix("/embed/").substringBefore("/")
-        else -> null
-    }
-    return candidate?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
 }
 
 private suspend fun translateEnglishToTamilIfNeeded(text: String): String {
