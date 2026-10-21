@@ -419,6 +419,8 @@ private fun MainAppScreen(
     var news by remember { mutableStateOf<List<NewsRecord>>(emptyList()) }
     var assignments by remember { mutableStateOf<List<AssignmentRecord>>(emptyList()) }
     var contacts by remember { mutableStateOf<List<ContactRecord>>(emptyList()) }
+    var stockVideos by remember { mutableStateOf<List<StockVideoRecord>>(emptyList()) }
+    var aiStockVideos by remember { mutableStateOf<List<StockVideoRecord>>(emptyList()) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(selectedTab, refreshVersion) {
@@ -445,6 +447,7 @@ private fun MainAppScreen(
             try {
                 aiNews = api.getNews()
                 aiAssignments = api.getAssignments()
+                aiStockVideos = runCatching { api.getStockVideos() }.getOrDefault(emptyList())
             } catch (error: Exception) {
                 aiError = error.message ?: "தரவுகளைப் பெற முடியவில்லை."
             } finally {
@@ -453,7 +456,19 @@ private fun MainAppScreen(
         }
     }
 
+    LaunchedEffect(selectedTab, refreshVersion) {
+        stockVideos = runCatching { api.getStockVideos() }.getOrDefault(emptyList())
+    }
+
     val districtNames = remember(districts) { districts.associate { it.id to it.name } }
+    val matchingStockVideos = remember(stockVideos, searchText) {
+        val query = searchText.trim()
+        if (query.isBlank()) emptyList() else stockVideos.filter { video ->
+            video.title.contains(query, true) ||
+                video.fileName.orEmpty().contains(query, true) ||
+                video.driveUrl.contains(query, true)
+        }.take(8)
+    }
 
     val context = LocalContext.current
 
