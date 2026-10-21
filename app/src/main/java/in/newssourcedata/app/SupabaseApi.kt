@@ -9,6 +9,8 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.UUID
+import java.util.Locale
 
 data class AppProfile(
     val id: String,
@@ -18,6 +20,8 @@ data class AppProfile(
 )
 
 data class District(val id: String, val name: String)
+
+data class AppDeviceApproval(val deviceId: String, val displayName: String, val status: String, val createdAt: String)
 
 data class NewsRecord(
     val id: String,
@@ -69,21 +73,43 @@ class SupabaseApi(context: Context) {
         !preferences.getString("access_token", null).isNullOrBlank() &&
             !preferences.getString("refresh_token", null).isNullOrBlank()
 
+    private val sharedLoginEmail = "kariyandimuthu@gmail.com"
+
     fun getDeviceDisplayName(): String =
         preferences.getString("device_display_name", null).orEmpty()
+
+    fun getRegisteredDeviceStatus(): String =
+        preferences.getString("device_status", null).orEmpty()
 
     fun setDeviceDisplayName(name: String) {
         preferences.edit().putString("device_display_name", name.trim()).apply()
     }
 
+    private fun ensureDeviceIdentity(): Pair<String, String> {
+        var deviceId = preferences.getString("device_id", null)
+        var deviceSecret = preferences.getString("device_secret", null)
+        if (deviceId.isNullOrBlank()) deviceId = UUID.randomUUID().toString()
+        if (deviceSecret.isNullOrBlank()) {
+            deviceSecret = UUID.randomUUID().toString() + UUID.randomUUID().toString()
+        }
+        preferences.edit()
+            .putString("device_id", deviceId)
+            .putString("device_secret", deviceSecret)
+            .apply()
+        return deviceId to deviceSecret
+    }
+
     private fun clearStoredSession() {
-        val deviceName = preferences.getString("device_display_name", null)
+        val preservedKeys = listOf("device_display_name", "device_id", "device_secret", "device_status")
+        val preserved = preservedKeys.associateWith { preferences.getString(it, null) }
         val editor = preferences.edit().clear()
-        if (!deviceName.isNullOrBlank()) editor.putString("device_display_name", deviceName)
+        preserved.forEach { (key, value) ->
+            if (!value.isNullOrBlank()) editor.putString(key, value)
+        }
         editor.apply()
     }
 
-    suspend fun signIn(email: String, password: String) = withContext(Dispatchers.IO) {
+    suspend fun signIn(password: String) = withContext(Dispatchers.IO) {
         if (baseUrl.isBlank() || publishableKey.isBlank()) {
             throw IllegalStateException("Supabase அமைப்புகள் இல்லை. Build configuration-ஐ சரிபார்க்கவும்.")
         }
@@ -91,7 +117,7 @@ class SupabaseApi(context: Context) {
             request(
                 path = "/auth/v1/token?grant_type=password",
                 method = "POST",
-                body = JSONObject().put("email", email.trim()).put("password", password),
+                body = JSONObject().put("email", sharedLoginEmail).put("password", password),
                 authenticated = false
             )
         )
@@ -99,6 +125,79 @@ class SupabaseApi(context: Context) {
         if (!hasSession()) {
             throw IllegalStateException("உள்நுழைவு வெற்றியடைந்தாலும் session கிடைக்கவில்லை.")
         }
+    }
+
+    suspend fun registerDevice(displayName: String): String = withContext(Dispatchers.IO) {
+        val cleanName = displayName.trim()
+        if (cleanName.isBlank()) throw IllegalStateException("உங்கள் பெயரை உள்ளிடவும்.")
+        if (!hasSession()) throw IllegalStateException("முதலில் உள்நுழையவும்.")
+        setDeviceDisplayName(cleanName)
+        val (deviceId, deviceSecret) = ensureDeviceIdentity()
+        val response = JSONObject(
+            request(
+                "/rest/v1/rpc/register_app_device",
+                "POST",
+                JSONObject()
+                    .put("p_device_id", deviceId)
+                    .put("p_device_name", cleanName)
+                    .put("p_device_secret", deviceSecret)
+            )
+        )
+        val status = response.optString("status").lowercase(Locale.ROOT)
+        if (status !in setOf("owner", "approved", "pending", "rejected", "revoked")) {
+            throw IllegalStateException("சாதனப் பதிவு நிலையைச் சேவையகம் வழங்கவில்லை.")
+        }
+        val resolvedName = response.optString("display_name", cleanName).ifBlank { cleanName }
+        preferences.edit()
+            .putString("device_display_name", resolvedName)
+            .putString("device_status", status)
+            .apply()
+        status
+    }
+
+    suspend fun getPendingDeviceApprovals(): List<AppDeviceApproval> = withContext(Dispatchers.IO) {
+        val deviceId = preferences.getString("device_id", null)
+            ?: throw IllegalStateException("நிர்வாகச் சாதன அடையாளம் கிடைக்கவில்லை.")
+        val deviceSecret = preferences.getString("device_secret", null)
+            ?: throw IllegalStateException("நிர்வாகச் சாதனத் திறவுகோல் கிடைக்கவில்லை.")
+        val rows = JSONArray(
+            request(
+                "/rest/v1/rpc/list_pending_app_devices",
+                "POST",
+                JSONObject()
+                    .put("p_owner_device_id", deviceId)
+                    .put("p_owner_secret", deviceSecret)
+            )
+        )
+        buildList {
+            for (index in 0 until rows.length()) {
+                val row = rows.getJSONObject(index)
+                add(
+                    AppDeviceApproval(
+                        deviceId = row.optString("device_id"),
+                        displayName = row.optString("display_name", "பெயரில்லா சாதனம்"),
+                        status = row.optString("status", "pending"),
+                        createdAt = row.optString("created_at", "")
+                    )
+                )
+            }
+        }
+    }
+
+    suspend fun setDeviceApproval(deviceId: String, approved: Boolean) = withContext(Dispatchers.IO) {
+        val ownerDeviceId = preferences.getString("device_id", null)
+            ?: throw IllegalStateException("நிர்வாகச் சாதன அடையாளம் கிடைக்கவில்லை.")
+        val ownerSecret = preferences.getString("device_secret", null)
+            ?: throw IllegalStateException("நிர்வாகச் சாதனத் திறவுகோல் கிடைக்கவில்லை.")
+        request(
+            "/rest/v1/rpc/set_app_device_approval",
+            "POST",
+            JSONObject()
+                .put("p_owner_device_id", ownerDeviceId)
+                .put("p_owner_secret", ownerSecret)
+                .put("p_target_device_id", deviceId)
+                .put("p_approve", approved)
+        )
     }
 
     suspend fun signOut() = withContext(Dispatchers.IO) {
@@ -477,6 +576,12 @@ class SupabaseApi(context: Context) {
         connection.readTimeout = 20_000
         connection.setRequestProperty("apikey", publishableKey)
         connection.setRequestProperty("Accept", "application/json")
+        preferences.getString("device_id", null)?.takeIf { it.isNotBlank() }?.let {
+            connection.setRequestProperty("x-app-device-id", it)
+        }
+        preferences.getString("device_secret", null)?.takeIf { it.isNotBlank() }?.let {
+            connection.setRequestProperty("x-app-device-secret", it)
+        }
         if (!bearerToken.isNullOrBlank()) {
             connection.setRequestProperty("Authorization", "Bearer " + bearerToken)
         }
