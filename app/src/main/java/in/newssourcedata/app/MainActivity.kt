@@ -115,12 +115,13 @@ private fun AppRoot(api: SupabaseApi) {
         "login" -> LoginScreen(
             loading = busy,
             message = loginError,
-            onLogin = { email, password ->
+            onLogin = { email, password, displayName ->
                 scope.launch {
                     busy = true
                     loginError = ""
                     try {
                         api.signIn(email, password)
+                        api.setDeviceDisplayName(displayName)
                         profile = api.getProfile()
                         if (profile?.approvalStatus == "approved") {
                             page = "main"
@@ -149,6 +150,7 @@ private fun AppRoot(api: SupabaseApi) {
             }
         )
         else -> MainAppScreen(
+            isOwner = profile?.role == "owner",
             onSignOut = {
                 scope.launch {
                     api.signOut()
@@ -183,8 +185,9 @@ private fun CenteredMessage(message: String) {
 private fun LoginScreen(
     loading: Boolean,
     message: String,
-    onLogin: (String, String) -> Unit
+    onLogin: (String, String, String) -> Unit
 ) {
+    var displayName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
@@ -200,6 +203,14 @@ private fun LoginScreen(
         Spacer(Modifier.height(12.dp))
         Text("செய்திகள் • அசைன்மென்ட் • தொடர்புகள்", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(28.dp))
+        OutlinedTextField(
+            value = displayName,
+            onValueChange = { displayName = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("இந்தச் சாதனத்தில் காட்டும் பெயர்") },
+            singleLine = true
+        )
+        Spacer(Modifier.height(10.dp))
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
@@ -222,7 +233,7 @@ private fun LoginScreen(
         }
         Spacer(Modifier.height(18.dp))
         Button(
-            onClick = { onLogin(email.trim(), password) },
+            onClick = { onLogin(email.trim(), password, displayName.trim()) },
             enabled = !loading && email.contains("@") && password.isNotBlank(),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -297,6 +308,7 @@ private val dateFilterOptions = listOf(
 @Composable
 private fun MainAppScreen(
     api: SupabaseApi,
+    isOwner: Boolean,
     onSignOut: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -305,6 +317,7 @@ private fun MainAppScreen(
     var activeFormInitial by remember { mutableStateOf<RecordForm?>(null) }
     var addMenuExpanded by remember { mutableStateOf(false) }
     var showAiAssistant by remember { mutableStateOf(false) }
+    var showPasswordDialog by remember { mutableStateOf(false) }
     var aiLoading by remember { mutableStateOf(false) }
     var aiNews by remember { mutableStateOf<List<NewsRecord>>(emptyList()) }
     var aiAssignments by remember { mutableStateOf<List<AssignmentRecord>>(emptyList()) }
@@ -369,7 +382,7 @@ private fun MainAppScreen(
     BackHandler(
         enabled = activeFormTab != null || previewNews != null || previewAssignment != null ||
             pendingDelete != null || showDistrictFilter || showDateFilter || showCategoryFilter ||
-            addMenuExpanded || showAiAssistant || selectedTab != 0
+            addMenuExpanded || showAiAssistant || showPasswordDialog || selectedTab != 0
     ) {
         when {
             activeFormTab != null -> {
@@ -384,6 +397,7 @@ private fun MainAppScreen(
             showDateFilter -> showDateFilter = false
             showCategoryFilter -> showCategoryFilter = false
             addMenuExpanded -> addMenuExpanded = false
+            showPasswordDialog -> showPasswordDialog = false
             showAiAssistant -> showAiAssistant = false
             selectedTab != 0 -> selectedTab = 0
         }
@@ -542,6 +556,16 @@ private fun MainAppScreen(
             onDismiss = { showAiAssistant = false }
         )
     }
+    if (showPasswordDialog) {
+        SharedPasswordDialog(
+            api = api,
+            onDismiss = { showPasswordDialog = false },
+            onPasswordChanged = {
+                showPasswordDialog = false
+                onSignOut()
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -552,7 +576,14 @@ private fun MainAppScreen(
                         Text(listOf("செய்திகள்", "அசைன்மென்ட்", "தொடர்புகள்")[selectedTab], style = MaterialTheme.typography.titleSmall)
                     }
                 },
-                actions = { TextButton(onClick = onSignOut, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("வெளியேறு", style = MaterialTheme.typography.labelSmall) } }
+                actions = {
+                    api.getDeviceDisplayName().takeIf { it.isNotBlank() }?.let {
+                        Text(it.take(18), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                    TextButton(onClick = onSignOut, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text("வெளியேறு", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             )
         },
         bottomBar = {
@@ -596,6 +627,12 @@ private fun MainAppScreen(
                         addMenuExpanded = false
                         showAiAssistant = true
                     })
+                    if (isOwner) {
+                        DropdownMenuItem(text = { Text("🔐  கடவுச்சொல் மாற்றம் / எல்லா சாதனங்களிலிருந்தும் வெளியேறு") }, onClick = {
+                            addMenuExpanded = false
+                            showPasswordDialog = true
+                        })
+                    }
                 }
             }
         }
@@ -1671,4 +1708,96 @@ private fun AiAssistantDialog(
             }
         }
     }
+}
+
+@Composable
+private fun SharedPasswordDialog(
+    api: SupabaseApi,
+    onDismiss: () -> Unit,
+    onPasswordChanged: () -> Unit
+) {
+    var currentPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var completed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    AlertDialog(
+        onDismissRequest = { if (!busy && !completed) onDismiss() },
+        title = { Text("பகிரப்பட்ட கடவுச்சொல் மாற்றம்") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (completed) {
+                    Text("கடவுச்சொல் மாற்றப்பட்டது. அனைத்து refresh session-களும் ரத்து செய்யப்பட்டன; பழைய access token-களின் தரவு அணுகலும் தடுக்கப்பட்டது.")
+                    Text("இந்தச் சாதனத்திலும் மீண்டும் உள்நுழைய வேண்டும்.")
+                } else {
+                    Text("புதிய கடவுச்சொல் அமைத்ததும் எல்லா நிருபர்களின் பழைய session-களும் நிறுத்தப்படும்.")
+                    OutlinedTextField(
+                        value = currentPassword,
+                        onValueChange = { currentPassword = it; errorMessage = "" },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("தற்போதைய கடவுச்சொல்") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = newPassword,
+                        onValueChange = { newPassword = it; errorMessage = "" },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("புதிய கடவுச்சொல் (குறைந்தது 8 எழுத்துகள்)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = confirmPassword,
+                        onValueChange = { confirmPassword = it; errorMessage = "" },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("புதிய கடவுச்சொல்லை உறுதிப்படுத்தவும்") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true
+                    )
+                    if (errorMessage.isNotBlank()) {
+                        Text(errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (completed) {
+                Button(onClick = onPasswordChanged) { Text("உள்நுழைவு பக்கத்திற்குச் செல்ல") }
+            } else {
+                Button(
+                    enabled = !busy && currentPassword.isNotBlank() && newPassword.length >= 8 &&
+                        newPassword == confirmPassword && newPassword != currentPassword,
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            errorMessage = ""
+                            try {
+                                api.changeSharedPassword(currentPassword, newPassword)
+                                completed = true
+                            } catch (exception: Exception) {
+                                errorMessage = exception.message ?: "கடவுச்சொல்லை மாற்ற முடியவில்லை."
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    }
+                ) {
+                    if (busy) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    else Text("கடவுச்சொல்லை மாற்றி அனைவரையும் வெளியேற்று")
+                }
+            }
+        },
+        dismissButton = {
+            if (!completed) {
+                TextButton(onClick = onDismiss, enabled = !busy) { Text("ரத்து") }
+            }
+        }
+    )
 }
