@@ -1,6 +1,7 @@
 package `in`.newssourcedata.app
 
 import android.os.Bundle
+import android.graphics.Bitmap
 import java.net.URLEncoder
 import java.net.URL
 import java.io.FileOutputStream
@@ -1532,7 +1533,7 @@ private fun RecordFormScreen(
                     if (tab == 0) {
                         IconButton(
                             onClick = { attachmentPicker.launch(arrayOf("image/*")) },
-                            enabled = !saving && selectedPhotoUri != null || !saving
+                            enabled = !saving
                         ) { Text("🖼", fontSize = 21.sp) }
                     }
                     Button(
@@ -1802,7 +1803,10 @@ private fun NewsPhotoStrip(api: SupabaseApi, paths: List<String>) {
             var bitmap by remember(path) { mutableStateOf<Bitmap?>(null) }
             LaunchedEffect(path) {
                 bitmap = withContext(Dispatchers.IO) {
-                    runCatching { BitmapFactory.decodeByteArray(api.getNewsPhotoBytes(path), 0, api.getNewsPhotoBytes(path).size) }.getOrNull()
+                    runCatching {
+                        val bytes = api.getNewsPhotoBytes(path)
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    }.getOrNull()
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(82.dp)) {
