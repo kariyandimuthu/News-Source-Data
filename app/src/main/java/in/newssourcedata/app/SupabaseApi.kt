@@ -69,6 +69,20 @@ class SupabaseApi(context: Context) {
         !preferences.getString("access_token", null).isNullOrBlank() &&
             !preferences.getString("refresh_token", null).isNullOrBlank()
 
+    fun getDeviceDisplayName(): String =
+        preferences.getString("device_display_name", null).orEmpty()
+
+    fun setDeviceDisplayName(name: String) {
+        preferences.edit().putString("device_display_name", name.trim()).apply()
+    }
+
+    private fun clearStoredSession() {
+        val deviceName = preferences.getString("device_display_name", null)
+        val editor = preferences.edit().clear()
+        if (!deviceName.isNullOrBlank()) editor.putString("device_display_name", deviceName)
+        editor.apply()
+    }
+
     suspend fun signIn(email: String, password: String) = withContext(Dispatchers.IO) {
         if (baseUrl.isBlank() || publishableKey.isBlank()) {
             throw IllegalStateException("Supabase அமைப்புகள் இல்லை. Build configuration-ஐ சரிபார்க்கவும்.")
@@ -90,12 +104,61 @@ class SupabaseApi(context: Context) {
     suspend fun signOut() = withContext(Dispatchers.IO) {
         try {
             if (hasSession()) {
-                request("/auth/v1/logout", "POST", JSONObject(), authenticated = true)
+                request("/auth/v1/logout?scope=local", "POST", null, authenticated = true)
             }
         } catch (_: Exception) {
             // Clear the local session even when the device is offline.
         } finally {
-            preferences.edit().clear().apply()
+            clearStoredSession()
+        }
+    }
+
+    suspend fun changeSharedPassword(currentPassword: String, newPassword: String) = withContext(Dispatchers.IO) {
+        val email = preferences.getString("email", null)?.trim().orEmpty()
+        if (email.isBlank()) throw IllegalStateException("உள்நுழைந்த மின்னஞ்சல் கிடைக்கவில்லை. மீண்டும் உள்நுழையவும்.")
+
+        val verifyResponse = executeHttp(
+            "/auth/v1/token?grant_type=password",
+            "POST",
+            JSONObject().put("email", email).put("password", currentPassword),
+            null
+        )
+        if (verifyResponse.status !in 200..299) {
+            throw IllegalStateException(friendlyError(verifyResponse.body, verifyResponse.status))
+        }
+        saveSession(JSONObject(verifyResponse.body))
+        val freshToken = preferences.getString("access_token", null)
+            ?: throw IllegalStateException("சரிபார்ப்பு முடிந்தது; session token கிடைக்கவில்லை.")
+
+        val updateResponse = executeHttp(
+            "/auth/v1/user",
+            "PUT",
+            JSONObject().put("password", newPassword),
+            freshToken
+        )
+        if (updateResponse.status !in 200..299) {
+            throw IllegalStateException(friendlyError(updateResponse.body, updateResponse.status))
+        }
+
+        val globalLogoutResponse = try {
+            executeHttp("/auth/v1/logout?scope=global", "POST", null, freshToken)
+        } catch (_: Exception) {
+            null
+        }
+        val cutoffResponse = try {
+            executeHttp("/rest/v1/rpc/revoke_all_shared_sessions", "POST", JSONObject(), freshToken)
+        } catch (_: Exception) {
+            null
+        }
+
+        clearStoredSession()
+
+        if (globalLogoutResponse == null || globalLogoutResponse.status !in 200..299 ||
+            cutoffResponse == null || cutoffResponse.status !in 200..299
+        ) {
+            throw IllegalStateException(
+                "கடவுச்சொல் மாற்றப்பட்டது. ஆனால் பழைய session-களை முழுமையாக ரத்து செய்ததை உறுதிப்படுத்த முடியவில்லை. புதிய கடவுச்சொல்லுடன் மீண்டும் உள்நுழைந்து, வேறு சாதனங்களின் அணுகலையும் சரிபார்க்கவும்."
+            )
         }
     }
 
@@ -394,7 +457,7 @@ class SupabaseApi(context: Context) {
         val response = executeHttp(path, method, body, token)
         if (response.status == 401 && authenticated && allowRefresh) {
             if (refreshSession()) return request(path, method, body, authenticated, false)
-            preferences.edit().clear().apply()
+            clearStoredSession()
         }
         if (response.status !in 200..299) {
             throw IllegalStateException(friendlyError(response.body, response.status))
