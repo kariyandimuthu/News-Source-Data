@@ -863,8 +863,13 @@ private fun MainAppScreen(
                             val categoryMatches = categoryFilter.isBlank() || item.category == categoryFilter
                             textMatches && districtMatches && categoryMatches && dateMatches(item.newsDate, dateFilter)
                         }
-                        if (filtered.isEmpty()) EmptyListMessage("செய்திகள் இல்லை. + பொத்தானை அழுத்திச் சேர்க்கவும்.")
-                        else {
+                        if (filtered.isEmpty()) {
+                            EmptyListMessage(
+                                if (searchText.isNotBlank() && matchingStockVideos.isNotEmpty())
+                                    "இந்தத் தேடலுக்குப் பொருந்தும் செய்தி இல்லை. மேலே உள்ள Stock Videos முடிவுகளைப் பார்க்கவும்."
+                                else "செய்திகள் இல்லை. + பொத்தானை அழுத்திச் சேர்க்கவும்."
+                            )
+                        } else {
                             val totalPages = (filtered.size + 9) / 10
                             val safePage = pageNumber.coerceIn(1, totalPages)
                             val pageItems = filtered.drop((safePage - 1) * 10).take(10)
@@ -873,7 +878,7 @@ private fun MainAppScreen(
                                     items(pageItems, key = { it.id }) { item ->
                                         val districtName = districtNames[item.districtId] ?: ""
                                         NewsCard(
-                                            api = api, item = item, districtName = districtName,
+                                            item = item, districtName = districtName,
                                             onPreview = { previewNews = item },
                                             onEdit = {
                                                 activeEditId = item.id
@@ -1073,7 +1078,7 @@ private fun IconAction(icon: ImageVector, label: String, onClick: () -> Unit, ti
 }
 
 @Composable
-private fun NewsCard(api: SupabaseApi, item: NewsRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onShare: () -> Unit) {
+private fun NewsCard(item: NewsRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onShare: () -> Unit) {
     ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp)) {
         Row(modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 9.dp, bottom = 9.dp, end = 5.dp),
             verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -1089,7 +1094,6 @@ private fun NewsCard(api: SupabaseApi, item: NewsRecord, districtName: String, o
                 if (meta.isNotBlank()) Text(meta, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 val previewBody = articleBodyWithoutRepeatedHeadline(item.headline, item.body)
                 if (previewBody.isNotBlank()) Text(previewBody, style = MaterialTheme.typography.bodySmall, maxLines = 3, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (item.attachmentPaths.isNotEmpty()) NewsPhotoStrip(api, item.attachmentPaths.take(2))
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 IconAction(Icons.Default.Visibility, "முன்னோட்டம்", onPreview, MaterialTheme.colorScheme.primary)
