@@ -791,7 +791,7 @@ private fun MainAppScreen(
                         textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                         decorationBox = { inner ->
                             Box {
-                                if (searchText.isBlank()) Text("செய்தி / தொடர்பு / வகை தேடுக", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                                if (searchText.isBlank()) Text("செய்தி / Assignment / தொடர்பு / Stock Video தேடுக", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                                 inner()
                             }
                         }
@@ -2216,7 +2216,7 @@ private fun AiAssistantDialog(
                     value = query,
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("செய்தி / இடம் / Assignment தேடுக") },
+                    label = { Text("செய்தி / இடம் / Assignment / Stock Video தேடுக") },
                     placeholder = { Text("எ.கா. நாங்குநேரி, திருட்டு…") },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     singleLine = true
