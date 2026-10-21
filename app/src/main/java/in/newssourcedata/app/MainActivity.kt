@@ -1882,6 +1882,7 @@ private fun StockVideosScreen(api: SupabaseApi, onBack: () -> Unit) {
         videoUrl = copied
         if (copied.isBlank()) message = "முதலில் Google Drive வீடியோ இணைப்பைக் காப்பி செய்யுங்கள்."
         else if (extractGoogleDriveFileId(copied) == null) message = "காப்பி செய்யப்பட்ட இணைப்பு Google Drive வீடியோவாக இல்லை."
+        else message = ""
     }
     fun loadVideos() {
         scope.launch {
