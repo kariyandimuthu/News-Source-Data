@@ -1,6 +1,26 @@
 package `in`.newssourcedata.app
 
 import android.os.Bundle
+import java.net.URLEncoder
+import java.net.URL
+import java.io.FileOutputStream
+import java.io.File
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import com.googlecode.tesseract.android.TessBaseAPI
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.DocumentScanner
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.Icons
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
+import android.graphics.BitmapFactory
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.ComponentActivity
@@ -258,6 +278,7 @@ private val priorityOptions = listOf(
     "குறைவு" to "low",
     "சாதாரணம்" to "normal",
     "முக்கியம்" to "high",
+    "பின்தொடர்வு" to "follow_up",
     "அவசரம்" to "urgent"
 )
 
@@ -289,6 +310,11 @@ private fun MainAppScreen(
     var searchText by remember { mutableStateOf("") }
     var districtFilter by remember { mutableStateOf("") }
     var dateFilter by remember { mutableStateOf("all") }
+    var categoryFilter by remember { mutableStateOf("") }
+    var pageNumber by remember { mutableIntStateOf(1) }
+    var showDistrictFilter by remember { mutableStateOf(false) }
+    var showDateFilter by remember { mutableStateOf(false) }
+    var showCategoryFilter by remember { mutableStateOf(false) }
     var districts by remember { mutableStateOf<List<District>>(emptyList()) }
     var news by remember { mutableStateOf<List<NewsRecord>>(emptyList()) }
     var assignments by remember { mutableStateOf<List<AssignmentRecord>>(emptyList()) }
@@ -313,6 +339,29 @@ private fun MainAppScreen(
     }
 
     val districtNames = remember(districts) { districts.associate { it.id to it.name } }
+
+    val context = LocalContext.current
+    val categoryFilterOptions = remember(news, assignments) {
+        val dynamic = (news.map { it.category } + assignments.map { it.category })
+            .filter { it.isNotBlank() }.distinct().map { it to it }
+        (listOf("அனைத்து வகைகள்" to "") + categoryOptions + dynamic).distinctBy { it.second }
+            .map { (label, value) -> (if (value.isBlank()) "அனைத்து வகைகள்" else categoryDisplayName(value)) to value }
+    }
+    LaunchedEffect(selectedTab, searchText, districtFilter, dateFilter, categoryFilter) { pageNumber = 1 }
+    if (showDistrictFilter) FilterOptionsDialog(
+        title = "மாவட்டம்",
+        choices = listOf("அனைத்து மாவட்டங்கள்" to "") + districts.map { it.name to it.id },
+        selected = districtFilter, onSelect = { districtFilter = it; showDistrictFilter = false },
+        onDismiss = { showDistrictFilter = false }
+    )
+    if (showDateFilter) FilterOptionsDialog(
+        title = "கால வரம்பு", choices = dateFilterOptions, selected = dateFilter,
+        onSelect = { dateFilter = it; showDateFilter = false }, onDismiss = { showDateFilter = false }
+    )
+    if (showCategoryFilter) FilterOptionsDialog(
+        title = "செய்தி வகை", choices = categoryFilterOptions, selected = categoryFilter,
+        onSelect = { categoryFilter = it; showCategoryFilter = false }, onDismiss = { showCategoryFilter = false }
+    )
 
     pendingDelete?.let { request ->
         AlertDialog(
@@ -440,41 +489,39 @@ private fun MainAppScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         NewsSourceWordmark(compact = true)
-                        Text(listOf("செய்திகள்", "அசைன்மென்ட்", "தொடர்புகள்")[selectedTab], style = MaterialTheme.typography.titleMedium)
+                        Text(listOf("செய்திகள்", "அசைன்மென்ட்", "தொடர்புகள்")[selectedTab], style = MaterialTheme.typography.titleSmall)
                     }
                 },
-                actions = {
-                    TextButton(onClick = onSignOut) { Text("வெளியேறு") }
-                }
+                actions = { TextButton(onClick = onSignOut, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("வெளியேறு", style = MaterialTheme.typography.labelSmall) } }
             )
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(modifier = Modifier.height(62.dp), windowInsets = WindowInsets(0.dp), tonalElevation = 2.dp) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
-                    onClick = { selectedTab = 0; districtFilter = ""; searchText = "" },
-                    icon = { Text("📰") },
-                    label = { Text("செய்திகள்") }
+                    onClick = { selectedTab = 0; districtFilter = ""; searchText = ""; categoryFilter = "" },
+                    icon = { Text("📰", fontSize = 16.sp) },
+                    label = { Text("செய்திகள்", style = MaterialTheme.typography.labelSmall) }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
-                    onClick = { selectedTab = 1; districtFilter = ""; searchText = "" },
-                    icon = { Text("📋") },
-                    label = { Text("அசைன்மென்ட்") }
+                    onClick = { selectedTab = 1; districtFilter = ""; searchText = ""; categoryFilter = "" },
+                    icon = { Text("📅", fontSize = 16.sp) },
+                    label = { Text("அசைன்மென்ட்", style = MaterialTheme.typography.labelSmall) }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
-                    onClick = { selectedTab = 2; districtFilter = ""; searchText = "" },
-                    icon = { Text("☎") },
-                    label = { Text("தொடர்புகள்") }
+                    onClick = { selectedTab = 2; districtFilter = ""; searchText = ""; categoryFilter = "" },
+                    icon = { Text("👥", fontSize = 16.sp) },
+                    label = { Text("தொடர்புகள்", style = MaterialTheme.typography.labelSmall) }
                 )
             }
         },
         floatingActionButton = {
             Box {
-                FloatingActionButton(onClick = { addMenuExpanded = true }) {
+                FloatingActionButton(onClick = { addMenuExpanded = true }, modifier = Modifier.size(50.dp), shape = RoundedCornerShape(16.dp)) {
                     Text("+", style = MaterialTheme.typography.headlineSmall)
                 }
                 DropdownMenu(expanded = addMenuExpanded, onDismissRequest = { addMenuExpanded = false }) {
@@ -492,127 +539,168 @@ private fun MainAppScreen(
         }
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 11.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            OutlinedTextField(
-                value = searchText,
-                onValueChange = { searchText = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("பெயர் / செய்தி / விவரங்களைத் தேடுக") },
-                singleLine = true
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("மாவட்டம்", style = MaterialTheme.typography.labelMedium)
-                    DistrictDropdown(
-                        districts = districts,
-                        selectedId = districtFilter,
-                        allowAll = true,
-                        onSelected = { districtFilter = it },
-                        modifier = Modifier.fillMaxWidth()
+            Surface(
+                modifier = Modifier.fillMaxWidth().height(42.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = "தேடு", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                    BasicTextField(
+                        value = searchText,
+                        onValueChange = { searchText = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                        decorationBox = { inner ->
+                            Box {
+                                if (searchText.isBlank()) Text("செய்தி / தொடர்பு / வகை தேடுக", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                                inner()
+                            }
+                        }
                     )
+                    if (searchText.isNotBlank()) {
+                        IconButton(onClick = { searchText = "" }, modifier = Modifier.size(28.dp)) { Text("×", fontSize = 20.sp) }
+                    }
                 }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("கால வரம்பு", style = MaterialTheme.typography.labelMedium)
-                    ChoiceDropdown(
-                        selected = dateFilter,
-                        choices = dateFilterOptions,
-                        placeholder = "தேதி",
-                        onSelected = { dateFilter = it },
-                        modifier = Modifier.fillMaxWidth()
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilterChip(
+                    selected = districtFilter.isNotBlank(), onClick = { showDistrictFilter = true },
+                    label = { Text(districts.firstOrNull { it.id == districtFilter }?.name ?: "மாவட்டம்", style = MaterialTheme.typography.labelSmall, maxLines = 1) },
+                    modifier = Modifier.height(32.dp)
+                )
+                FilterChip(
+                    selected = dateFilter != "all", onClick = { showDateFilter = true },
+                    label = { Text(dateFilterOptions.firstOrNull { it.second == dateFilter }?.first ?: "தேதி", style = MaterialTheme.typography.labelSmall) },
+                    modifier = Modifier.height(32.dp)
+                )
+                if (selectedTab != 2) {
+                    FilterChip(
+                        selected = categoryFilter.isNotBlank(), onClick = { showCategoryFilter = true },
+                        label = { Text(categoryFilter.takeIf { it.isNotBlank() }?.let(::categoryDisplayName) ?: "வகை", style = MaterialTheme.typography.labelSmall, maxLines = 1) },
+                        modifier = Modifier.height(32.dp)
                     )
+                    if (categoryFilter.isNotBlank()) TextButton(onClick = { categoryFilter = "" }, contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)) { Text("×") }
                 }
             }
             if (statusMessage.isNotBlank()) {
-                Text(statusMessage, color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = { refreshVersion += 1 }) { Text("மீண்டும் முயற்சி") }
+                Text(statusMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                TextButton(onClick = { refreshVersion += 1 }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) { Text("மீண்டும் முயற்சி") }
             }
             if (loading) {
-                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             } else {
                 when (selectedTab) {
                     0 -> {
                         val filtered = news.filter { item ->
-                            val textMatches = searchText.isBlank() ||
-                                item.headline.contains(searchText, true) ||
-                                item.body.contains(searchText, true) ||
-                                item.summary.contains(searchText, true) ||
+                            val textMatches = searchText.isBlank() || item.headline.contains(searchText, true) ||
+                                item.body.contains(searchText, true) || item.summary.contains(searchText, true) ||
                                 item.category.contains(searchText, true)
                             val districtMatches = districtFilter.isBlank() || item.districtId == districtFilter
-                            textMatches && districtMatches && dateMatches(item.newsDate, dateFilter)
+                            val categoryMatches = categoryFilter.isBlank() || item.category == categoryFilter
+                            textMatches && districtMatches && categoryMatches && dateMatches(item.newsDate, dateFilter)
                         }
                         if (filtered.isEmpty()) EmptyListMessage("செய்திகள் இல்லை. + பொத்தானை அழுத்திச் சேர்க்கவும்.")
-                        else LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(filtered, key = { it.id }) { item ->
-                                val districtName = districtNames[item.districtId] ?: "மாவட்டம் குறிப்பிடப்படவில்லை"
-                                NewsCard(
-                                    item = item,
-                                    districtName = districtName,
-                                    onPreview = { previewNews = item },
-                                    onEdit = {
-                                        activeEditId = item.id
-                                        activeFormInitial = RecordForm(item.headline, item.body, item.summary, item.newsDate, item.districtId, item.category, item.priority, item.location.orEmpty())
-                                        activeFormTab = 0
-                                    },
-                                    onDelete = { pendingDelete = 0 to item.id }
-                                )
+                        else {
+                            val totalPages = (filtered.size + 9) / 10
+                            val safePage = pageNumber.coerceIn(1, totalPages)
+                            val pageItems = filtered.drop((safePage - 1) * 10).take(10)
+                            Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    items(pageItems, key = { it.id }) { item ->
+                                        val districtName = districtNames[item.districtId] ?: ""
+                                        NewsCard(
+                                            item = item, districtName = districtName,
+                                            onPreview = { previewNews = item },
+                                            onEdit = {
+                                                activeEditId = item.id
+                                                activeFormInitial = RecordForm(item.headline, item.body, item.summary, item.newsDate, item.districtId, item.category, item.priority, item.location.orEmpty())
+                                                activeFormTab = 0
+                                            },
+                                            onDelete = { pendingDelete = 0 to item.id },
+                                            onShare = { shareToWhatsApp(context, newsShareText(item, districtName)) }
+                                        )
+                                    }
+                                }
+                                PaginationControls(filtered.size, safePage, totalPages) { pageNumber = it }
                             }
                         }
                     }
                     1 -> {
                         val filtered = assignments.filter { item ->
-                            val textMatches = searchText.isBlank() ||
-                                item.title.contains(searchText, true) ||
-                                item.description.contains(searchText, true) ||
-                                item.category.contains(searchText, true)
+                            val textMatches = searchText.isBlank() || item.title.contains(searchText, true) ||
+                                item.description.contains(searchText, true) || item.category.contains(searchText, true)
                             val districtMatches = districtFilter.isBlank() || item.districtId == districtFilter
-                            textMatches && districtMatches && dateMatches(item.eventDate, dateFilter)
+                            val categoryMatches = categoryFilter.isBlank() || item.category == categoryFilter
+                            textMatches && districtMatches && categoryMatches && dateMatches(item.eventDate, dateFilter)
                         }
                         if (filtered.isEmpty()) EmptyListMessage("அசைன்மென்ட் இல்லை. + பொத்தானை அழுத்திச் சேர்க்கவும்.")
-                        else LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(filtered, key = { it.id }) { item ->
-                                val districtName = districtNames[item.districtId] ?: "மாவட்டம் குறிப்பிடப்படவில்லை"
-                                AssignmentCard(
-                                    item = item,
-                                    districtName = districtName,
-                                    onPreview = { previewAssignment = item },
-                                    onEdit = {
-                                        activeEditId = item.id
-                                        activeFormInitial = RecordForm(item.title, item.description, date = item.eventDate, districtId = item.districtId, category = item.category, priority = item.priority, location = item.location.orEmpty())
-                                        activeFormTab = 1
-                                    },
-                                    onDelete = { pendingDelete = 1 to item.id }
-                                )
+                        else {
+                            val totalPages = (filtered.size + 9) / 10
+                            val safePage = pageNumber.coerceIn(1, totalPages)
+                            val pageItems = filtered.drop((safePage - 1) * 10).take(10)
+                            Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    items(pageItems, key = { it.id }) { item ->
+                                        val districtName = districtNames[item.districtId] ?: ""
+                                        AssignmentCard(
+                                            item = item, districtName = districtName,
+                                            onPreview = { previewAssignment = item },
+                                            onEdit = {
+                                                activeEditId = item.id
+                                                activeFormInitial = RecordForm(item.title, item.description, date = item.eventDate, districtId = item.districtId, category = item.category, priority = item.priority, location = item.location.orEmpty())
+                                                activeFormTab = 1
+                                            },
+                                            onDelete = { pendingDelete = 1 to item.id },
+                                            onShare = { shareToWhatsApp(context, assignmentShareText(item, districtName)) }
+                                        )
+                                    }
+                                }
+                                PaginationControls(filtered.size, safePage, totalPages) { pageNumber = it }
                             }
                         }
                     }
                     else -> {
                         val filtered = contacts.filter { item ->
-                            val textMatches = searchText.isBlank() ||
-                                item.fullName.contains(searchText, true) ||
-                                item.phone.contains(searchText, true) ||
-                                item.organization.contains(searchText, true) ||
+                            val textMatches = searchText.isBlank() || item.fullName.contains(searchText, true) ||
+                                item.phone.contains(searchText, true) || item.organization.contains(searchText, true) ||
                                 item.designation.contains(searchText, true)
                             val districtMatches = districtFilter.isBlank() || item.districtId == districtFilter
                             textMatches && districtMatches && dateMatches(item.createdAt ?: "", dateFilter)
                         }
                         if (filtered.isEmpty()) EmptyListMessage("தொடர்புகள் இல்லை. + பொத்தானை அழுத்திச் சேர்க்கவும்.")
-                        else LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(filtered, key = { it.id }) { item ->
-                                val districtName = districtNames[item.districtId] ?: "மாவட்டம் குறிப்பிடப்படவில்லை"
-                                ContactCard(
-                                    item = item,
-                                    districtName = districtName,
-                                    onEdit = {
-                                        activeEditId = item.id
-                                        activeFormInitial = RecordForm(item.fullName, date = "", districtId = item.districtId, designation = item.designation, organization = item.organization, phone = item.phone, email = item.email, notes = item.notes)
-                                        activeFormTab = 2
-                                    },
-                                    onDelete = { pendingDelete = 2 to item.id }
-                                )
+                        else {
+                            val totalPages = (filtered.size + 9) / 10
+                            val safePage = pageNumber.coerceIn(1, totalPages)
+                            val pageItems = filtered.drop((safePage - 1) * 10).take(10)
+                            Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    items(pageItems, key = { it.id }) { item ->
+                                        val districtName = districtNames[item.districtId] ?: ""
+                                        ContactCard(
+                                            item = item, districtName = districtName,
+                                            onEdit = {
+                                                activeEditId = item.id
+                                                activeFormInitial = RecordForm(item.fullName, date = "", districtId = item.districtId, designation = item.designation, organization = item.organization, phone = item.phone, email = item.email, notes = item.notes)
+                                                activeFormTab = 2
+                                            },
+                                            onDelete = { pendingDelete = 2 to item.id }
+                                        )
+                                    }
+                                }
+                                PaginationControls(filtered.size, safePage, totalPages) { pageNumber = it }
                             }
                         }
                     }
@@ -642,6 +730,71 @@ private fun dateMatches(value: String, filter: String): Boolean {
 private fun EmptyListMessage(message: String) {
     Box(modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp), contentAlignment = Alignment.Center) {
         Text(message, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun FilterOptionsDialog(
+    title: String,
+    choices: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
+                choices.forEach { choice ->
+                    TextButton(onClick = { onSelect(choice.second) }, modifier = Modifier.fillMaxWidth()) {
+                        Text((if (selected == choice.second) "✓  " else "") + choice.first, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("மூடு") } }
+    )
+}
+
+@Composable
+private fun PaginationControls(totalItems: Int, currentPage: Int, totalPages: Int, onPageChange: (Int) -> Unit) {
+    if (totalItems <= 0) return
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 1.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        Text("${totalItems} பதிவுகள் · ${(currentPage - 1) * 10 + 1}–${minOf(currentPage * 10, totalItems)}",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (totalPages > 1) {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { if (currentPage > 1) onPageChange(currentPage - 1) }, enabled = currentPage > 1, modifier = Modifier.size(30.dp)) {
+                    Text("‹", fontSize = 22.sp, color = MaterialTheme.colorScheme.primary)
+                }
+                (1..totalPages).forEach { page ->
+                    val selected = page == currentPage
+                    Surface(
+                        onClick = { onPageChange(page) },
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.padding(horizontal = 2.dp).size(29.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("${page}", style = MaterialTheme.typography.labelMedium,
+                                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+                IconButton(onClick = { if (currentPage < totalPages) onPageChange(currentPage + 1) }, enabled = currentPage < totalPages, modifier = Modifier.size(30.dp)) {
+                    Text("›", fontSize = 22.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
     }
 }
 
