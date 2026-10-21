@@ -3,6 +3,7 @@ package `in`.newssourcedata.app
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.ContentValues
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
