@@ -5,6 +5,10 @@ on:
   push:
     branches:
       - main
+      - feature/stock-videos-photo-ocr-tamil-translation
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
