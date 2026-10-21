@@ -148,6 +148,7 @@ private val categories = listOf("குற்றம்","விபத்து",
    }
    TextButton(enabled=!busy,onClick={signup=!signup;message=""}){Text(if(signup)"உள்நுழைக" else "புதிய கணக்கு உருவாக்கவும்")}
    if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.error)
+   Text("நிலை: "+diagnostic,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
    Spacer(Modifier.height(18.dp))
    Text("Created For News Source WhatsApp Group",style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.Bold,textAlign=TextAlign.Center,color=MaterialTheme.colorScheme.primary)
    Text("NEWS • ASSIGNMENTS • CONTACTS",style=MaterialTheme.typography.labelSmall,textAlign=TextAlign.Center,color=MaterialTheme.colorScheme.onSurfaceVariant)
