@@ -283,6 +283,65 @@ class SupabaseApi(context: Context) {
         request("/rest/v1/contacts", "POST", payload)
     }
 
+
+    suspend fun updateNews(
+        id: String, headline: String, body: String, summary: String, newsDate: String,
+        districtId: String?, category: String, priority: String, location: String
+    ) = withContext(Dispatchers.IO) {
+        val payload = JSONObject()
+            .put("headline", headline.trim())
+            .put("body", nullableValue(body))
+            .put("summary", nullableValue(summary))
+            .put("news_date", newsDate)
+            .put("district_id", nullableValue(districtId))
+            .put("category", category)
+            .put("priority", priority)
+            .put("location_text", nullableValue(location))
+        request("/rest/v1/news_items?id=eq." + encode(id), "PATCH", payload)
+    }
+
+    suspend fun updateAssignment(
+        id: String, title: String, description: String, eventDate: String,
+        districtId: String?, category: String, priority: String, location: String
+    ) = withContext(Dispatchers.IO) {
+        val payload = JSONObject()
+            .put("title", title.trim())
+            .put("description", nullableValue(description))
+            .put("event_date", nullableValue(eventDate))
+            .put("district_id", nullableValue(districtId))
+            .put("category", category)
+            .put("priority", priority)
+            .put("location_text", nullableValue(location))
+        request("/rest/v1/assignments?id=eq." + encode(id), "PATCH", payload)
+    }
+
+    suspend fun updateContact(
+        id: String, fullName: String, designation: String, organization: String,
+        phone: String, email: String, districtId: String?, notes: String
+    ) = withContext(Dispatchers.IO) {
+        val payload = JSONObject()
+            .put("full_name", fullName.trim())
+            .put("designation", nullableValue(designation))
+            .put("organization", nullableValue(organization))
+            .put("phone", nullableValue(phone))
+            .put("email", nullableValue(email))
+            .put("district_id", nullableValue(districtId))
+            .put("notes", nullableValue(notes))
+        request("/rest/v1/contacts?id=eq." + encode(id), "PATCH", payload)
+    }
+
+    suspend fun deleteNews(id: String) = withContext(Dispatchers.IO) {
+        request("/rest/v1/news_items?id=eq." + encode(id), "DELETE", null)
+    }
+
+    suspend fun deleteAssignment(id: String) = withContext(Dispatchers.IO) {
+        request("/rest/v1/assignments?id=eq." + encode(id), "DELETE", null)
+    }
+
+    suspend fun deleteContact(id: String) = withContext(Dispatchers.IO) {
+        request("/rest/v1/contacts?id=eq." + encode(id), "DELETE", null)
+    }
+
     private fun requireUserId(): String =
         preferences.getString("user_id", null)
             ?: throw IllegalStateException("மீண்டும் உள்நுழையவும்.")
