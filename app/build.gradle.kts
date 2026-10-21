@@ -5,6 +5,19 @@ plugins {
     id("com.google.devtools.ksp") version "2.0.21-1.0.28"
 }
 
+val localProperties = java.util.Properties().apply {
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        localFile.inputStream().use { load(it) }
+    }
+}
+val supabaseUrl = localProperties.getProperty("SUPABASE_URL")
+    ?: System.getenv("SUPABASE_URL")
+    ?: "https://cmvvcwcavopmpwkowhnz.supabase.co"
+val supabasePublishableKey = localProperties.getProperty("SUPABASE_PUBLISHABLE_KEY")
+    ?: System.getenv("SUPABASE_PUBLISHABLE_KEY")
+    ?: "sb_publishable_iY6fpaaFMuRpBpShDVSCtA_OeRglNDw"
+
 android {
     namespace = "in.newssourcedata.app"
     compileSdk = 35
@@ -13,12 +26,16 @@ android {
         applicationId = "in.newssourcedata.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
+
+        buildConfigField("String", "SUPABASE_URL", "\"" + supabaseUrl + "\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"" + supabasePublishableKey + "\"")
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
