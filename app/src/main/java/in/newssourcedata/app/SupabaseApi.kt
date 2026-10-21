@@ -490,7 +490,8 @@ class SupabaseApi(context: Context) {
             ?: throw IllegalStateException("சரியான Google Drive கோப்பு இணைப்பை உள்ளிடவும்.")
         val metadata = fetchGoogleDriveMetadata(fileId, rawUrl)
         val title = metadata.first.ifBlank { "Google Drive வீடியோ ${fileId.take(8)}" }
-        val previewUrl = "https://drive.google.com/file/d/$fileId/preview" + driveResourceKeyQuery(rawUrl)
+        val previewResourceKey = driveResourceKeyQuery(rawUrl).replaceFirst("&", "?")
+        val previewUrl = "https://drive.google.com/file/d/$fileId/preview" + previewResourceKey
         val thumbnailUrl = "https://drive.google.com/thumbnail?id=$fileId&sz=w640" + driveResourceKeyQuery(rawUrl)
         request(
             "/rest/v1/stock_videos",
