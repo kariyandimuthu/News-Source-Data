@@ -18,7 +18,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URI
 import java.net.URLEncoder
+import java.io.InputStream
 import java.util.UUID
 import java.util.Locale
 
@@ -50,10 +52,12 @@ data class NewsRecord(
 
 data class StockVideoRecord(
     val id: String,
-    val youtubeVideoId: String,
-    val youtubeUrl: String,
+    val driveFileId: String,
+    val driveUrl: String,
     val title: String,
+    val previewUrl: String,
     val thumbnailUrl: String,
+    val fileName: String?,
     val createdAt: String?
 )
 
@@ -81,6 +85,30 @@ data class ContactRecord(
     val notes: String,
     val createdAt: String?
 )
+
+internal fun extractGoogleDriveFileId(raw: String): String? {
+    val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
+    val host = uri.host?.lowercase(Locale.ROOT)?.removePrefix("www.") ?: return null
+    if (host !in setOf("drive.google.com", "docs.google.com")) return null
+    val path = uri.path.orEmpty()
+    val query = uri.rawQuery.orEmpty().split("&").mapNotNull {
+        val separator = it.indexOf('=')
+        if (separator <= 0) null else {
+            val key = it.substring(0, separator)
+            val value = runCatching { java.net.URLDecoder.decode(it.substring(separator + 1), "UTF-8") }
+                .getOrDefault(it.substring(separator + 1))
+            key to value
+        }
+    }.toMap()
+    val candidate = when {
+        Regex("""/file/d/([^/]+)""").containsMatchIn(path) ->
+            Regex("""/file/d/([^/]+)""").find(path)?.groupValues?.get(1)
+        path == "/open" || path == "/uc" || path == "/file" -> query["id"]
+        else -> null
+    }
+    return candidate?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{10,200}")) }
+}
+
 
 class SupabaseApi(context: Context) {
     private val appContext: Context = context.applicationContext
@@ -433,7 +461,7 @@ class SupabaseApi(context: Context) {
     suspend fun getStockVideos(): List<StockVideoRecord> = withContext(Dispatchers.IO) {
         val rows = JSONArray(
             request(
-                "/rest/v1/stock_videos?select=id,youtube_video_id,youtube_url,title,thumbnail_url,created_at&order=created_at.desc",
+                "/rest/v1/stock_videos?select=id,drive_file_id,drive_url,title,preview_url,thumbnail_url,file_name,created_at&drive_file_id=not.is.null&order=created_at.desc",
                 "GET",
                 null
             )
@@ -444,10 +472,12 @@ class SupabaseApi(context: Context) {
                 add(
                     StockVideoRecord(
                         id = row.optString("id"),
-                        youtubeVideoId = row.optString("youtube_video_id"),
-                        youtubeUrl = row.optString("youtube_url"),
+                        driveFileId = row.optString("drive_file_id"),
+                        driveUrl = row.optString("drive_url"),
                         title = row.optString("title"),
+                        previewUrl = row.optString("preview_url"),
                         thumbnailUrl = row.optString("thumbnail_url"),
+                        fileName = optionalString(row, "file_name"),
                         createdAt = optionalString(row, "created_at")
                     )
                 )
@@ -456,34 +486,250 @@ class SupabaseApi(context: Context) {
     }
 
     suspend fun saveStockVideo(rawUrl: String) = withContext(Dispatchers.IO) {
-        val videoId = extractYouTubeVideoId(rawUrl)
-            ?: throw IllegalStateException("சரியான YouTube வீடியோ இணைப்பை உள்ளிடவும்.")
-        val canonicalUrl = "https://www.youtube.com/watch?v=$videoId"
-        val connection = (URL("https://www.youtube.com/oembed?url=" + encode(canonicalUrl) + "&format=json")
-            .openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 12_000
-            readTimeout = 15_000
-        }
-        val metadata = try {
-            val code = connection.responseCode
-            if (code !in 200..299) throw IllegalStateException("இந்த YouTube வீடியோ விவரங்களைப் பெற முடியவில்லை.")
-            connection.inputStream.bufferedReader(Charsets.UTF_8).use { JSONObject(it.readText()) }
-        } finally {
-            connection.disconnect()
-        }
-        val title = optionalString(metadata, "title")?.trim().orEmpty()
-        if (title.isBlank()) throw IllegalStateException("YouTube தலைப்பைப் பெற முடியவில்லை.")
+        val fileId = extractGoogleDriveFileId(rawUrl)
+            ?: throw IllegalStateException("சரியான Google Drive கோப்பு இணைப்பை உள்ளிடவும்.")
+        val metadata = fetchGoogleDriveMetadata(fileId, rawUrl)
+        val title = metadata.first.ifBlank { "Google Drive வீடியோ ${fileId.take(8)}" }
+        val previewUrl = "https://drive.google.com/file/d/$fileId/preview" + driveResourceKeyQuery(rawUrl)
+        val thumbnailUrl = "https://drive.google.com/thumbnail?id=$fileId&sz=w640" + driveResourceKeyQuery(rawUrl)
         request(
             "/rest/v1/stock_videos",
             "POST",
             JSONObject()
                 .put("owner_id", requireUserId())
-                .put("youtube_video_id", videoId)
-                .put("youtube_url", canonicalUrl)
+                .put("drive_file_id", fileId)
+                .put("drive_url", rawUrl.trim())
                 .put("title", title)
-                .put("thumbnail_url", "https://i.ytimg.com/vi/$videoId/hqdefault.jpg")
+                .put("file_name", nullableValue(metadata.second))
+                .put("preview_url", previewUrl)
+                .put("thumbnail_url", thumbnailUrl)
+                .put("youtube_video_id", JSONObject.NULL)
+                .put("youtube_url", JSONObject.NULL)
         )
+    }
+
+    suspend fun downloadGoogleDriveVideo(context: Context, video: StockVideoRecord): String = withContext(Dispatchers.IO) {
+        val fileId = extractGoogleDriveFileId(video.driveUrl)
+            ?: video.driveFileId.takeIf { it.matches(Regex("[A-Za-z0-9_-]{10,200}")) }
+            ?: throw IllegalStateException("Google Drive கோப்பு ID செல்லுபடியானதல்ல.")
+        val connection = openGoogleDriveDownload(fileId, video.driveUrl)
+        val mimeType = connection.contentType?.substringBefore(';')?.takeIf { it.isNotBlank() } ?: "video/mp4"
+        val headerName = parseContentDispositionFileName(connection.getHeaderField("Content-Disposition"))
+        val selectedName = safeDownloadFileName(headerName ?: video.fileName ?: video.title, mimeType, fileId)
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, selectedName)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/NewsSourceData")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val destination = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        if (destination == null) {
+            connection.disconnect()
+            throw IllegalStateException("Downloads கோப்பை உருவாக்க முடியவில்லை.")
+        }
+        try {
+            val input = connection.inputStream
+            val output = context.contentResolver.openOutputStream(destination)
+                ?: throw IllegalStateException("Downloads கோப்பை எழுத முடியவில்லை.")
+            input.use { source ->
+                output.use { sink ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val count = source.read(buffer)
+                        if (count < 0) break
+                        if (count > 0) sink.write(buffer, 0, count)
+                    }
+                    sink.flush()
+                }
+            }
+            values.clear()
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            context.contentResolver.update(destination, values, null, null)
+            selectedName
+        } catch (error: Exception) {
+            context.contentResolver.delete(destination, null, null)
+            throw error
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun fetchGoogleDriveMetadata(fileId: String, rawUrl: String): Pair<String, String?> {
+        val requestUrl = if (rawUrl.contains("resourcekey=")) rawUrl.trim()
+            else "https://drive.google.com/file/d/$fileId/view?usp=sharing"
+        val connection = (URL(requestUrl).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15_000
+            readTimeout = 20_000
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36")
+            setRequestProperty("Accept", "text/html,application/xhtml+xml")
+        }
+        return try {
+            val code = connection.responseCode
+            if (code !in 200..299) throw IllegalStateException("Google Drive இணைப்பை அணுக முடியவில்லை (HTTP $code).")
+            val html = connection.inputStream.use { readTextLimited(it, 2 * 1024 * 1024) }
+            val title = findHtmlMeta(html, "og:title") ?: findHtmlTitle(html)?.removeSuffix(" - Google Drive")?.trim()
+            val fileName = findHtmlMeta(html, "og:filename") ?: findHtmlMeta(html, "filename") ?: title
+            cleanDriveTitle(title).ifBlank { "Google Drive வீடியோ ${fileId.take(8)}" } to
+                fileName?.let(::cleanDriveTitle)?.takeIf { it.isNotBlank() }
+        } catch (error: Exception) {
+            if (error is IllegalStateException && error.message?.contains("Google Drive இணைப்பை") == true) throw error
+            "Google Drive வீடியோ ${fileId.take(8)}" to null
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun openGoogleDriveDownload(fileId: String, originalUrl: String): HttpURLConnection {
+        var nextUrl = URL("https://drive.google.com/uc?export=download&id=" +
+            URLEncoder.encode(fileId, "UTF-8") + driveResourceKeyQuery(originalUrl))
+        val cookies = linkedMapOf<String, String>()
+        var confirmationTried = false
+        repeat(8) {
+            if (!isAllowedDriveHost(nextUrl.host)) {
+                throw IllegalStateException("Google Drive-இன் பாதுகாப்பற்ற redirect தடுக்கப்பட்டது.")
+            }
+            val connection = (nextUrl.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 20_000
+                readTimeout = 180_000
+                instanceFollowRedirects = false
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36")
+                setRequestProperty("Accept", "*/*")
+                setRequestProperty("Accept-Encoding", "identity")
+                if (cookies.isNotEmpty()) {
+                    setRequestProperty("Cookie", cookies.entries.joinToString("; ") { (name, value) -> "$name=$value" })
+                }
+            }
+            val code = try {
+                connection.responseCode
+            } catch (_: Exception) {
+                connection.disconnect()
+                throw IllegalStateException("Google Drive-இலிருந்து இணைக்க முடியவில்லை. இணைய இணைப்பைச் சரிபார்க்கவும்.")
+            }
+            connection.headerFields.entries.filter { it.key.equals("Set-Cookie", true) }
+                .flatMap { it.value.orEmpty() }
+                .forEach { value ->
+                    val pair = value.substringBefore(';')
+                    val split = pair.indexOf('=')
+                    if (split > 0) cookies[pair.substring(0, split)] = pair.substring(split + 1)
+                }
+            if (code in 300..399) {
+                val location = connection.getHeaderField("Location")
+                    ?: run {
+                        connection.disconnect()
+                        throw IllegalStateException("Google Drive redirect கிடைக்கவில்லை.")
+                    }
+                nextUrl = URL(nextUrl, location)
+                connection.disconnect()
+                return@repeat
+            }
+            if (code !in 200..299) {
+                connection.disconnect()
+                if (code == 401 || code == 403) {
+                    throw IllegalStateException("இந்த Drive கோப்பைப் பதிவிறக்க அனுமதி இல்லை. பகிர்வு அமைப்பையும் பதிவிறக்க அனுமதியையும் சரிபார்க்கவும்.")
+                }
+                throw IllegalStateException("Google Drive பதிவிறக்கம் தோல்வியடைந்தது (HTTP $code).")
+            }
+            val contentType = connection.contentType.orEmpty().substringBefore(';').lowercase(Locale.ROOT)
+            if (contentType == "text/html") {
+                val html = connection.inputStream.use { readTextLimited(it, 2 * 1024 * 1024) }
+                val tokenFromCookie = cookies.entries.firstOrNull { it.key.startsWith("download_warning") }?.value
+                val token = tokenFromCookie ?: findDriveConfirmationToken(html)
+                connection.disconnect()
+                if (token != null && !confirmationTried) {
+                    confirmationTried = true
+                    nextUrl = URL("https://drive.google.com/uc?export=download&confirm=" +
+                        URLEncoder.encode(token, "UTF-8") + "&id=" +
+                        URLEncoder.encode(fileId, "UTF-8") + driveResourceKeyQuery(originalUrl))
+                    return@repeat
+                }
+                throw IllegalStateException("Google Drive பதிவிறக்க HTML பக்கத்தை வழங்கியது. கோப்பு Anyone with the link எனப் பகிரப்பட்டுள்ளதா, பதிவிறக்கம் அனுமதிக்கப்பட்டுள்ளதா எனச் சரிபார்க்கவும்.")
+            }
+            return connection
+        }
+        throw IllegalStateException("Google Drive நேரடி Download இணைப்பை உருவாக்க முடியவில்லை.")
+    }
+
+    private fun findDriveConfirmationToken(html: String): String? {
+        val normalized = html.replace("&amp;", "&").replace("&#38;", "&")
+        return Regex("""[?&]confirm=([0-9A-Za-z_-]+)""").find(normalized)?.groupValues?.getOrNull(1)
+            ?: Regex("""name=["']confirm["']\\s+value=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .find(normalized)?.groupValues?.getOrNull(1)
+            ?: Regex("""download_warning[^=]*=([^;"'\\s]+)""").find(normalized)?.groupValues?.getOrNull(1)
+    }
+
+    private fun isAllowedDriveHost(host: String): Boolean {
+        val value = host.lowercase(Locale.ROOT).trimEnd('.')
+        return value == "drive.google.com" || value == "docs.google.com" ||
+            value == "drive.usercontent.google.com" || value.endsWith(".googleusercontent.com")
+    }
+
+    private fun driveResourceKeyQuery(rawUrl: String): String {
+        val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return ""
+        val key = uri.rawQuery.orEmpty().split("&").firstOrNull { it.startsWith("resourcekey=") }
+            ?.substringAfter("=")?.takeIf { it.isNotBlank() } ?: return ""
+        return "&resourcekey=$key"
+    }
+
+    private fun parseContentDispositionFileName(header: String?): String? {
+        if (header.isNullOrBlank()) return null
+        val extended = Regex("""filename\\*=(?:UTF-8'')?([^;]+)""", RegexOption.IGNORE_CASE)
+            .find(header)?.groupValues?.getOrNull(1)?.trim()?.trim('"')
+        val simple = Regex("""filename=["']?([^;"']+)""", RegexOption.IGNORE_CASE)
+            .find(header)?.groupValues?.getOrNull(1)?.trim()
+        val picked = extended ?: simple ?: return null
+        return runCatching { java.net.URLDecoder.decode(picked, "UTF-8") }.getOrDefault(picked)
+    }
+
+    private fun safeDownloadFileName(candidate: String, mimeType: String, fileId: String): String {
+        var name = candidate.substringAfterLast('/').trim()
+            .replace(Regex("""[\\\\/:*?"<>|\\p{Cntrl}]"""), "_")
+            .trim('.', ' ')
+        if (name.isBlank() || name.equals("Google Drive", true)) name = "DriveVideo-${fileId.take(8)}"
+        if (!name.contains('.')) {
+            name += when (mimeType.lowercase(Locale.ROOT)) {
+                "video/webm" -> ".webm"
+                "video/quicktime" -> ".mov"
+                "video/x-matroska" -> ".mkv"
+                "video/3gpp" -> ".3gp"
+                else -> ".mp4"
+            }
+        }
+        return name.take(180)
+    }
+
+    private fun findHtmlMeta(html: String, key: String): String? {
+        val escaped = Regex.escape(key)
+        val patterns = listOf(
+            Regex("""<meta[^>]+(?:property|name)=["']$escaped["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE),
+            Regex("""<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']$escaped["']""", RegexOption.IGNORE_CASE)
+        )
+        return patterns.firstNotNullOfOrNull { it.find(html)?.groupValues?.getOrNull(1) }
+            ?.let(::cleanDriveTitle)?.takeIf { it.isNotBlank() }
+    }
+
+    private fun findHtmlTitle(html: String): String? =
+        Regex("""<title[^>]*>(.*?)</title>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(html)?.groupValues?.getOrNull(1)?.let(::cleanDriveTitle)
+
+    private fun cleanDriveTitle(value: String?): String =
+        android.text.Html.fromHtml(value.orEmpty(), android.text.Html.FROM_HTML_MODE_LEGACY)
+            .toString().replace(Regex("\\s+"), " ").trim()
+
+    private fun readTextLimited(input: InputStream, maxBytes: Int): String {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            if (total > maxBytes) throw IllegalStateException("Google Drive பக்கத்தின் தகவல் அதிகமாக உள்ளது.")
+            output.write(buffer, 0, count)
+        }
+        return String(output.toByteArray(), Charsets.UTF_8)
     }
 
     suspend fun deleteStockVideo(id: String) = withContext(Dispatchers.IO) {
@@ -597,20 +843,6 @@ class SupabaseApi(context: Context) {
         }
     }
 
-    private fun extractYouTubeVideoId(raw: String): String? {
-        val uri = runCatching { java.net.URI(raw.trim()) }.getOrNull() ?: return null
-        val host = uri.host?.lowercase(Locale.ROOT)?.removePrefix("www.") ?: return null
-        if (host !in setOf("youtube.com", "m.youtube.com", "youtu.be", "youtube-nocookie.com")) return null
-        val candidate = when {
-            host == "youtu.be" -> uri.path.trim('/').substringBefore("/")
-            uri.path == "/watch" -> uri.rawQuery.orEmpty().split("&")
-                .firstOrNull { it.startsWith("v=") }?.substringAfter("v=")
-            uri.path.startsWith("/shorts/") -> uri.path.removePrefix("/shorts/").substringBefore("/")
-            uri.path.startsWith("/embed/") -> uri.path.removePrefix("/embed/").substringBefore("/")
-            else -> null
-        }
-        return candidate?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
-    }
 
     suspend fun addAssignment(
         title: String,
