@@ -30,6 +30,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import java.time.Instant
@@ -813,132 +814,137 @@ private fun articleBodyWithoutRepeatedHeadline(headline: String, body: String): 
     } else cleanBody
 }
 
+
 @Composable
-private fun NewsCard(
-    item: NewsRecord,
-    districtName: String,
-    onPreview: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit
-) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(categoryDisplayName(item.category), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text(listOf(item.newsDate, districtName).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Surface(shape = MaterialTheme.shapes.small, color = when (item.priority) {
-                    "urgent" -> MaterialTheme.colorScheme.errorContainer
-                    "high" -> MaterialTheme.colorScheme.tertiaryContainer
-                    else -> MaterialTheme.colorScheme.surfaceVariant
-                }) {
-                    Text(item.priority, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall)
-                }
-            }
-            Text(item.headline, style = MaterialTheme.typography.titleLarge)
-            val previewBody = articleBodyWithoutRepeatedHeadline(item.headline, item.body)
-            if (previewBody.isNotBlank()) Text(previewBody, style = MaterialTheme.typography.bodyMedium, maxLines = 4)
-            if (!item.location.isNullOrBlank()) Text("⌖  " + item.location, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onPreview, modifier = Modifier.weight(1f)) { Text("முன்னோட்டம்") }
-                OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("திருத்து") }
-                TextButton(onClick = onDelete) { Text("நீக்கு", color = MaterialTheme.colorScheme.error) }
-            }
-        }
+private fun IconAction(icon: ImageVector, label: String, onClick: () -> Unit, tint: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    IconButton(onClick = onClick, modifier = Modifier.size(31.dp)) {
+        Icon(imageVector = icon, contentDescription = label, tint = tint, modifier = Modifier.size(18.dp))
     }
 }
 
 @Composable
-private fun AssignmentCard(
-    item: AssignmentRecord,
-    districtName: String,
-    onPreview: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit
-) {
-    val dateParts = item.eventDate.split("-")
-    val day = dateParts.getOrNull(2)?.takeIf { it.isNotBlank() } ?: "—"
-    val month = try { LocalDate.parse(item.eventDate).month.name.take(3) } catch (_: Exception) { "" }
-    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
-        Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.width(62.dp)) {
-                    Column(modifier = Modifier.padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (month.isNotBlank()) Text(month, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Text(day, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+private fun NewsCard(item: NewsRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onShare: () -> Unit) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 9.dp, bottom = 9.dp, end = 5.dp),
+            verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(categoryDisplayName(item.category), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Surface(shape = RoundedCornerShape(6.dp), color = if (item.priority == "high" || item.priority == "urgent" || item.priority == "follow_up") MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
+                        Text(priorityDisplayName(item.priority), modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
                     }
                 }
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(listOf(item.status.replace("_", " "), item.priority).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text(item.title, style = MaterialTheme.typography.titleMedium)
-                    if (item.description.isNotBlank()) Text(item.description, style = MaterialTheme.typography.bodyMedium, maxLines = 3, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    val locationLine = listOf(districtName, item.location.orEmpty()).filter { it.isNotBlank() && it != "மாவட்டம் குறிப்பிடப்படவில்லை" }.joinToString(" · ")
-                    if (locationLine.isNotBlank()) Text("⌖  $locationLine", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                Text(item.headline, style = MaterialTheme.typography.titleMedium, maxLines = 3)
+                val meta = listOf(item.newsDate, districtName, item.location.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
+                if (meta.isNotBlank()) Text(meta, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                val previewBody = articleBodyWithoutRepeatedHeadline(item.headline, item.body)
+                if (previewBody.isNotBlank()) Text(previewBody, style = MaterialTheme.typography.bodySmall, maxLines = 3, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = onPreview, modifier = Modifier.weight(1f)) { Text("முன்னோட்டம்") }
-                OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("திருத்து") }
-                TextButton(onClick = onDelete) { Text("நீக்கு", color = MaterialTheme.colorScheme.error) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                IconAction(Icons.Default.Visibility, "முன்னோட்டம்", onPreview, MaterialTheme.colorScheme.primary)
+                IconAction(Icons.Default.Edit, "திருத்து", onEdit)
+                IconAction(Icons.Default.Share, "WhatsApp பகிர்வு", onShare, MaterialTheme.colorScheme.secondary)
+                IconAction(Icons.Default.Delete, "நீக்கு", onDelete, MaterialTheme.colorScheme.error)
             }
         }
     }
 }
 
 @Composable
-private fun ContactCard(
-    item: ContactRecord,
-    districtName: String,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit
-) {
+private fun AssignmentCard(item: AssignmentRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onShare: () -> Unit) {
+    val day = item.eventDate.split("-").getOrNull(2)?.takeIf { it.isNotBlank() } ?: "—"
+    val month = try { LocalDate.parse(item.eventDate).month.name.take(3) } catch (_: Exception) { "" }
+    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(start = 9.dp, top = 9.dp, bottom = 9.dp, end = 5.dp),
+            verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.width(48.dp)) {
+                Column(modifier = Modifier.padding(vertical = 7.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (month.isNotBlank()) Text(month, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(day, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(listOf(categoryDisplayName(item.category), priorityDisplayName(item.priority)).filter { it.isNotBlank() }.joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+                Text(item.title, style = MaterialTheme.typography.titleMedium, maxLines = 3)
+                if (item.description.isNotBlank()) Text(stripSavedEventTime(item.description), style = MaterialTheme.typography.bodySmall, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val locationLine = listOf(districtName, item.location.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
+                if (locationLine.isNotBlank()) Text(locationLine, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                val eventTime = readSavedStartTime(item.description).let { start ->
+                    val finish = readSavedEndTime(item.description)
+                    listOf(start, finish).filter { it.isNotBlank() }.joinToString(" – ")
+                }
+                if (eventTime.isNotBlank()) Text("◷  $eventTime", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                IconAction(Icons.Default.Visibility, "முன்னோட்டம்", onPreview, MaterialTheme.colorScheme.primary)
+                IconAction(Icons.Default.Edit, "திருத்து", onEdit)
+                IconAction(Icons.Default.Share, "WhatsApp பகிர்வு", onShare, MaterialTheme.colorScheme.secondary)
+                IconAction(Icons.Default.Delete, "நீக்கு", onDelete, MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContactCard(item: ContactRecord, districtName: String, onEdit: () -> Unit, onDelete: () -> Unit) {
     val context = LocalContext.current
     val initials = item.fullName.trim().split(Regex("\\s+")).take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("")
-    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
-        Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-                Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.tertiaryContainer) {
-                    Box(modifier = Modifier.size(54.dp), contentAlignment = Alignment.Center) {
-                        Text(initials.ifBlank { "?" }, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onTertiaryContainer)
+    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(start = 10.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+            verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+                Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                    Text(initials.ifBlank { "?" }, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                }
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(item.fullName, style = MaterialTheme.typography.titleMedium, maxLines = 2)
+                val roleLine = listOf(item.designation, item.organization).filter { it.isNotBlank() }.joinToString(" · ")
+                if (roleLine.isNotBlank()) Text(roleLine, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                if (item.phone.isNotBlank()) Text(item.phone, style = MaterialTheme.typography.bodySmall)
+                if (item.email.isNotBlank()) Text(item.email, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                if (districtName.isNotBlank()) Text(districtName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                if (item.notes.isNotBlank()) Text(item.notes, style = MaterialTheme.typography.bodySmall, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                IconAction(Icons.Default.Call, "அழைக்க", {
+                    if (item.phone.isNotBlank()) runCatching {
+                        context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${item.phone.trim()}")))
                     }
-                }
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(item.fullName, style = MaterialTheme.typography.titleMedium)
-                    val roleLine = listOf(item.designation, item.organization).filter { it.isNotBlank() }.joinToString(" · ")
-                    if (roleLine.isNotBlank()) Text(roleLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (item.phone.isNotBlank()) Text("☎  " + item.phone, style = MaterialTheme.typography.bodyMedium)
-                    if (item.email.isNotBlank()) Text("✉  " + item.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (districtName.isNotBlank() && districtName != "மாவட்டம் குறிப்பிடப்படவில்லை") Text(districtName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    if (item.notes.isNotBlank()) Text(item.notes, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                }
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = {
-                        val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${item.phone.trim()}"))
-                        context.startActivity(dialIntent)
-                    },
-                    enabled = item.phone.isNotBlank(),
-                    modifier = Modifier.weight(1f)
-                ) { Text("அழைக்க") }
-                OutlinedButton(
-                    onClick = {
-                        val digits = item.phone.filter { it.isDigit() }
-                        val international = if (digits.length == 10) "91$digits" else digits
+                }, MaterialTheme.colorScheme.primary)
+                IconAction(Icons.Default.Chat, "WhatsApp", {
+                    val digits = item.phone.filter { it.isDigit() }
+                    val international = if (digits.length == 10) "91$digits" else digits
+                    if (international.isNotBlank()) runCatching {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$international")))
-                    },
-                    enabled = item.phone.isNotBlank(),
-                    modifier = Modifier.weight(1f)
-                ) { Text("WhatsApp") }
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("திருத்து") }
-                TextButton(onClick = onDelete) { Text("நீக்கு", color = MaterialTheme.colorScheme.error) }
+                    }
+                }, MaterialTheme.colorScheme.secondary)
+                IconAction(Icons.Default.Edit, "திருத்து", onEdit)
+                IconAction(Icons.Default.Delete, "நீக்கு", onDelete, MaterialTheme.colorScheme.error)
             }
         }
     }
 }
+
+private fun shareToWhatsApp(context: Context, message: String) {
+    val encoded = URLEncoder.encode(message, "UTF-8")
+    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/?text=$encoded")))
+}
+
+private fun newsShareText(item: NewsRecord, district: String): String =
+    listOf("📰 ${item.headline}", articleBodyWithoutRepeatedHeadline(item.headline, item.body), "📅 ${item.newsDate}",
+        district.takeIf { it.isNotBlank() }?.let { "📍 $it" }, "— News Source")
+        .filterNotNull().filter { it.isNotBlank() }.joinToString("\n\n")
+
+private fun assignmentShareText(item: AssignmentRecord, district: String): String =
+    listOf("📌 ${item.title}", stripSavedEventTime(item.description), "📅 ${item.eventDate}",
+        readSavedStartTime(item.description).takeIf { it.isNotBlank() }?.let { start ->
+            "🕒 $start" + readSavedEndTime(item.description).takeIf { it.isNotBlank() }?.let { " – $it" }.orEmpty()
+        },
+        district.takeIf { it.isNotBlank() }?.let { "📍 $it" },
+        item.location?.takeIf { it.isNotBlank() }?.let { "இடம்: $it" }, "— News Source")
+        .filterNotNull().filter { it.isNotBlank() }.joinToString("\n\n")
 
 @Composable
 private fun DistrictDropdown(
