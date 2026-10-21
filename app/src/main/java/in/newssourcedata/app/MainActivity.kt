@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.Icons
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import android.graphics.BitmapFactory
 import android.content.Context
@@ -343,6 +344,30 @@ private fun MainAppScreen(
     val districtNames = remember(districts) { districts.associate { it.id to it.name } }
 
     val context = LocalContext.current
+
+    // Handle Android system Back before the activity closes.
+    BackHandler(
+        enabled = activeFormTab != null || previewNews != null || previewAssignment != null ||
+            pendingDelete != null || showDistrictFilter || showDateFilter || showCategoryFilter ||
+            addMenuExpanded || selectedTab != 0
+    ) {
+        when {
+            activeFormTab != null -> {
+                activeFormTab = null
+                activeEditId = null
+                activeFormInitial = null
+            }
+            previewNews != null -> previewNews = null
+            previewAssignment != null -> previewAssignment = null
+            pendingDelete != null -> pendingDelete = null
+            showDistrictFilter -> showDistrictFilter = false
+            showDateFilter -> showDateFilter = false
+            showCategoryFilter -> showCategoryFilter = false
+            addMenuExpanded -> addMenuExpanded = false
+            selectedTab != 0 -> selectedTab = 0
+        }
+    }
+
     val categoryFilterOptions = remember(news, assignments) {
         val dynamic = (news.map { it.category } + assignments.map { it.category })
             .filter { it.isNotBlank() }.distinct().map { it to it }
