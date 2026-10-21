@@ -128,7 +128,7 @@ private fun AppRoot(api: SupabaseApi) {
                             page = "pending"
                         }
                     } else {
-                        pendingMessage = deviceApprovalMessage(deviceStatus, deviceName)
+                        pendingMessage = deviceApprovalMessage(deviceStatus)
                         page = "pending"
                     }
                 }
@@ -163,7 +163,7 @@ private fun AppRoot(api: SupabaseApi) {
                                 page = "pending"
                             }
                         } else {
-                            pendingMessage = deviceApprovalMessage(deviceStatus, displayName)
+                            pendingMessage = deviceApprovalMessage(deviceStatus)
                             page = "pending"
                         }
                     } catch (error: Exception) {
@@ -192,7 +192,7 @@ private fun AppRoot(api: SupabaseApi) {
                                 pendingMessage = profileApprovalMessage(profile?.approvalStatus)
                             }
                         } else {
-                            pendingMessage = deviceApprovalMessage(deviceStatus, deviceName)
+                            pendingMessage = deviceApprovalMessage(deviceStatus)
                         }
                     } catch (error: Exception) {
                         pendingMessage = error.message ?: "ஒப்புதல் நிலையைப் பெற முடியவில்லை."
@@ -232,9 +232,9 @@ private fun profileApprovalMessage(status: String?): String = when (status) {
     else -> "இந்தக் கணக்கிற்கான அனுமதி விவரங்கள் கிடைக்கவில்லை. Supabase profiles அட்டவணையைச் சரிபார்க்கவும்."
 }
 
-private fun deviceApprovalMessage(status: String, displayName: String): String = when (status) {
-    "pending" -> "$displayName சாதனத்தின் உள்நுழைவு கோரிக்கை Muthu Rajan சாதனத்தின் ஒப்புதலுக்காகக் காத்திருக்கிறது."
-    "rejected" -> "இந்தச் சாதனத்திற்கான அனுமதி மறுக்கப்பட்டுள்ளது. Muthu Rajan சாதனத்தில் மீண்டும் ஒப்புதல் அளிக்கலாம்."
+private fun deviceApprovalMessage(status: String): String = when (status) {
+    "pending" -> "இந்தச் சாதனத்தின் உள்நுழைவு கோரிக்கை முதன்மைச் சாதனத்தின் ஒப்புதலுக்காகக் காத்திருக்கிறது."
+    "rejected" -> "இந்தச் சாதனத்திற்கான அனுமதி மறுக்கப்பட்டுள்ளது. முதன்மைச் சாதனத்தில் மீண்டும் ஒப்புதல் அளிக்கலாம்."
     "revoked" -> "இந்தச் சாதனத்தின் அனுமதி ரத்து செய்யப்பட்டுள்ளது. நிர்வாகியைத் தொடர்புகொள்ளவும்."
     else -> "இந்தச் சாதனத்தின் அனுமதி நிலையைச் சரிபார்க்க முடியவில்லை."
 }
@@ -302,7 +302,7 @@ private fun LoginScreen(
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "புதிய சாதனத்தின் உள்நுழைவுக்கு Muthu Rajan சாதனத்தின் ஒப்புதல் தேவை.",
+            "புதிய சாதனத்தின் உள்நுழைவுக்கு முதன்மைச் சாதனத்தின் ஒப்புதல் தேவை.",
             style = MaterialTheme.typography.bodySmall
         )
     }
