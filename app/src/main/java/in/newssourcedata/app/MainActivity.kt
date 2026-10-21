@@ -2274,6 +2274,20 @@ private fun AiAssistantDialog(
                                 }
                             }
                         }
+                        item {
+                            Text(
+                                "கிடைத்த Stock Videos (" + matchingStockVideos.size + ")",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (matchingStockVideos.isEmpty()) {
+                            item { Text("பொருந்தும் Stock Video இல்லை.", style = MaterialTheme.typography.bodySmall) }
+                        } else {
+                            items(matchingStockVideos, key = { "stock-video-" + it.id }) { video ->
+                                StockVideoSearchCard(api = api, video = video, compact = false)
+                            }
+                        }
                     } else {
                         item {
                             Text(
