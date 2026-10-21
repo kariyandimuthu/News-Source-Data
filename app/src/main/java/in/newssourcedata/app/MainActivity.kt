@@ -6,6 +6,14 @@ import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import java.time.Instant
+import java.time.ZoneOffset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,8 +37,21 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val api = SupabaseApi(applicationContext)
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            MaterialTheme(
+                colorScheme = lightColorScheme(
+                    primary = Color(0xFF283B80),
+                    onPrimary = Color.White,
+                    secondary = Color(0xFF087F8C),
+                    onSecondary = Color.White,
+                    tertiary = Color(0xFFC58A32),
+                    background = Color(0xFFF6F7FB),
+                    surface = Color.White,
+                    surfaceVariant = Color(0xFFEEF1F7),
+                    onSurface = Color(0xFF172033),
+                    onSurfaceVariant = Color(0xFF65708A)
+                )
+            ) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     AppRoot(api)
                 }
             }
@@ -151,9 +172,9 @@ private fun LoginScreen(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("News Source Data", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(8.dp))
-        Text("செய்திகள் • அசைன்மென்ட் • தொடர்புகள்", style = MaterialTheme.typography.bodyMedium)
+        NewsSourceWordmark()
+        Spacer(Modifier.height(12.dp))
+        Text("செய்திகள் • அசைன்மென்ட் • தொடர்புகள்", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(28.dp))
         OutlinedTextField(
             value = email,
@@ -375,6 +396,10 @@ private fun MainAppScreen(
             tab = activeFormTab ?: selectedTab,
             districts = districts,
             initialForm = activeFormInitial,
+            knownCategories = (news.map { it.category } + assignments.map { it.category })
+                .filter { value -> value.isNotBlank() && categoryOptions.none { it.second == value } }
+                .distinct()
+                .map { value -> value to value },
             onBack = {
                 activeFormTab = null
                 activeEditId = null
@@ -412,7 +437,12 @@ private fun MainAppScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(listOf("செய்திகள்", "அசைன்மென்ட்", "தொடர்புகள்")[selectedTab]) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        NewsSourceWordmark(compact = true)
+                        Text(listOf("செய்திகள்", "அசைன்மென்ட்", "தொடர்புகள்")[selectedTab], style = MaterialTheme.typography.titleMedium)
+                    }
+                },
                 actions = {
                     TextButton(onClick = onSignOut) { Text("வெளியேறு") }
                 }
@@ -640,7 +670,7 @@ private fun NewsCard(
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(item.category.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(categoryDisplayName(item.category), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text(listOf(item.newsDate, districtName).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Surface(shape = MaterialTheme.shapes.small, color = when (item.priority) {
@@ -824,11 +854,12 @@ private fun RecordFormScreen(
     tab: Int,
     districts: List<District>,
     initialForm: RecordForm? = null,
+    knownCategories: List<Pair<String, String>> = emptyList(),
     onBack: () -> Unit,
     onSave: suspend (RecordForm) -> Unit
 ) {
     var title by remember(tab, initialForm) { mutableStateOf(initialForm?.title ?: "") }
-    var details by remember(tab, initialForm) { mutableStateOf(initialForm?.details ?: "") }
+    var details by remember(tab, initialForm) { mutableStateOf(initialForm?.details?.let { if (tab == 1) stripSavedEventTime(it) else it } ?: "") }
     var summary by remember(tab, initialForm) { mutableStateOf(initialForm?.summary ?: "") }
     var date by remember(tab, initialForm) { mutableStateOf(initialForm?.date?.takeIf { it.isNotBlank() } ?: LocalDate.now().toString()) }
     var districtId by remember(tab, initialForm) { mutableStateOf(initialForm?.districtId.orEmpty()) }
@@ -840,127 +871,353 @@ private fun RecordFormScreen(
     var phone by remember(tab, initialForm) { mutableStateOf(initialForm?.phone ?: "") }
     var email by remember(tab, initialForm) { mutableStateOf(initialForm?.email ?: "") }
     var notes by remember(tab, initialForm) { mutableStateOf(initialForm?.notes ?: "") }
-    var startTime by remember(tab, initialForm) { mutableStateOf("") }
-    var endTime by remember(tab, initialForm) { mutableStateOf("") }
+    var startTime by remember(tab, initialForm) { mutableStateOf(initialForm?.details?.let(::readSavedStartTime).orEmpty()) }
+    var endTime by remember(tab, initialForm) { mutableStateOf(initialForm?.details?.let(::readSavedEndTime).orEmpty()) }
+    var customCategories by remember(tab, initialForm, knownCategories) {
+        mutableStateOf(
+            if (initialForm?.category.isNullOrBlank() || categoryOptions.any { it.second == initialForm?.category } ||
+                knownCategories.any { it.second == initialForm?.category }) emptyList()
+            else listOf(initialForm?.category.orEmpty() to initialForm?.category.orEmpty())
+        )
+    }
     var saving by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showDistrictPicker by remember { mutableStateOf(false) }
+    var showCategoryPicker by remember { mutableStateOf(false) }
+    var showNewCategoryDialog by remember { mutableStateOf(false) }
+    var showPriorityPicker by remember { mutableStateOf(false) }
+    var showLocationDialog by remember { mutableStateOf(false) }
+    var showSummaryDialog by remember { mutableStateOf(false) }
+    var locationDraft by remember { mutableStateOf("") }
+    var summaryDraft by remember { mutableStateOf("") }
+    var newCategoryName by remember { mutableStateOf("") }
+    var activeTimeTarget by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = dateToMillis(date))
+    val timePickerState = rememberTimePickerState(initialHour = 9, initialMinute = 0, is24Hour = true)
     val formTitle = when (tab) {
         0 -> if (initialForm == null) "புதிய செய்தி" else "செய்தியைத் திருத்து"
         1 -> if (initialForm == null) "புதிய அசைன்மென்ட்" else "அசைன்மென்டைத் திருத்து"
         else -> if (initialForm == null) "புதிய தொடர்பு" else "தொடர்பைத் திருத்து"
     }
     val autoTitle = details.trim().split(Regex("\\n\\s*\\n|\\r?\\n")).firstOrNull()?.trim().orEmpty().take(180)
+    val selectedDistrictName = districts.firstOrNull { it.id == districtId }?.name ?: "மாவட்டம் தேர்வு"
+    val allCategories = (categoryOptions + knownCategories + customCategories).distinctBy { it.second }
+
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { date = millisToDate(it) }
+                    showDatePicker = false
+                }) { Text("தேர்வு") }
+            },
+            dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("ரத்து") } }
+        ) { DatePicker(state = datePickerState, showModeToggle = true) }
+    }
+
+    if (showDistrictPicker) {
+        AlertDialog(
+            onDismissRequest = { showDistrictPicker = false },
+            title = { Text("மாவட்டத்தைத் தேர்வு செய்க") },
+            text = {
+                Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    TextButton(onClick = { districtId = ""; showDistrictPicker = false }, modifier = Modifier.fillMaxWidth()) {
+                        Text("மாவட்டம் குறிப்பிட வேண்டாம்", modifier = Modifier.fillMaxWidth())
+                    }
+                    districts.forEach { district ->
+                        TextButton(onClick = { districtId = district.id; showDistrictPicker = false }, modifier = Modifier.fillMaxWidth()) {
+                            Text((if (district.id == districtId) "✓  " else "") + district.name, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showDistrictPicker = false }) { Text("மூடு") } }
+        )
+    }
+
+    if (showCategoryPicker) {
+        AlertDialog(
+            onDismissRequest = { showCategoryPicker = false },
+            title = { Text("செய்தி வகை") },
+            text = {
+                Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
+                    allCategories.forEach { option ->
+                        TextButton(onClick = { category = option.second; showCategoryPicker = false }, modifier = Modifier.fillMaxWidth()) {
+                            Text((if (option.second == category) "✓  " else "") + option.first, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                    Divider()
+                    TextButton(onClick = { showCategoryPicker = false; newCategoryName = ""; showNewCategoryDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("＋ புதிய வகையைச் சேர்க்கவும்")
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showCategoryPicker = false }) { Text("மூடு") } }
+        )
+    }
+
+    if (showNewCategoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showNewCategoryDialog = false },
+            title = { Text("புதிய செய்தி வகை") },
+            text = {
+                OutlinedTextField(value = newCategoryName, onValueChange = { newCategoryName = it }, modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("எ.கா. கல்வி, சுகாதாரம்") }, singleLine = true)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val newValue = newCategoryName.trim()
+                    if (newValue.isNotBlank()) {
+                        customCategories = (customCategories + (newValue to newValue)).distinctBy { it.second }
+                        category = newValue
+                        showNewCategoryDialog = false
+                    }
+                }) { Text("சேர்க்கவும்") }
+            },
+            dismissButton = { TextButton(onClick = { showNewCategoryDialog = false }) { Text("ரத்து") } }
+        )
+    }
+
+    if (showPriorityPicker) {
+        AlertDialog(
+            onDismissRequest = { showPriorityPicker = false },
+            title = { Text("முன்னுரிமை") },
+            text = {
+                Column {
+                    priorityOptions.forEach { option ->
+                        TextButton(onClick = { priority = option.second; showPriorityPicker = false }, modifier = Modifier.fillMaxWidth()) {
+                            Text((if (priority == option.second) "✓  " else "") + option.first, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showPriorityPicker = false }) { Text("மூடு") } }
+        )
+    }
+
+    if (showLocationDialog) {
+        AlertDialog(
+            onDismissRequest = { showLocationDialog = false },
+            title = { Text(if (category == "police") "காவல் நிலையம் / இடம்" else "இடம்") },
+            text = {
+                OutlinedTextField(value = locationDraft, onValueChange = { locationDraft = it }, modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(if (category == "police") "காவல் நிலையப் பெயர்" else "இடம் (விருப்பம்)") }, singleLine = true)
+            },
+            confirmButton = { TextButton(onClick = { location = locationDraft.trim(); showLocationDialog = false }) { Text("சேமி") } },
+            dismissButton = { TextButton(onClick = { showLocationDialog = false }) { Text("ரத்து") } }
+        )
+    }
+
+    if (showSummaryDialog) {
+        AlertDialog(
+            onDismissRequest = { showSummaryDialog = false },
+            title = { Text("செய்திச் சுருக்கம்") },
+            text = {
+                OutlinedTextField(value = summaryDraft, onValueChange = { summaryDraft = it }, modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("சுருக்கமாக எழுதுங்கள்") }, minLines = 3)
+            },
+            confirmButton = { TextButton(onClick = { summary = summaryDraft.trim(); showSummaryDialog = false }) { Text("சேமி") } },
+            dismissButton = { TextButton(onClick = { showSummaryDialog = false }) { Text("ரத்து") } }
+        )
+    }
+
+    if (activeTimeTarget != null) {
+        AlertDialog(
+            onDismissRequest = { activeTimeTarget = null },
+            title = { Text(if (activeTimeTarget == "start") "தொடக்க நேரம்" else "முடிவு நேரம்") },
+            text = { Column(horizontalAlignment = Alignment.CenterHorizontally) { TimePicker(state = timePickerState) } },
+            confirmButton = {
+                TextButton(onClick = {
+                    val picked = "%02d:%02d".format(timePickerState.hour, timePickerState.minute)
+                    if (activeTimeTarget == "start") startTime = picked else endTime = picked
+                    activeTimeTarget = null
+                }) { Text("நேரத்தைத் தேர்வு செய்க") }
+            },
+            dismissButton = { TextButton(onClick = { activeTimeTarget = null }) { Text("ரத்து") } }
+        )
+    }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(formTitle) },
-                navigationIcon = { TextButton(onClick = onBack) { Text("← திரும்ப") } }
-            )
-        },
-        bottomBar = {
-            Surface(shadowElevation = 6.dp) {
-                Button(
-                    onClick = {
-                        val resolvedTitle = if (tab == 2) title.trim() else autoTitle
-                        when {
-                            resolvedTitle.isBlank() -> message = if (tab == 2) "பெயரை உள்ளிடவும்." else "செய்தியின் முதல் பத்தியை உள்ளிடவும்; அதுவே தலைப்பாகும்."
-                            tab != 2 && runCatching { LocalDate.parse(date) }.isFailure -> message = "தேதியை YYYY-MM-DD வடிவில் உள்ளிடவும்."
-                            tab == 2 && phone.isBlank() && email.isBlank() -> message = "தொலைபேசி எண் அல்லது மின்னஞ்சலை உள்ளிடவும்."
-                            else -> scope.launch {
-                                saving = true
-                                message = ""
-                                try {
-                                    val savedDetails = if (tab == 1 && (startTime.isNotBlank() || endTime.isNotBlank())) {
-                                        details.trim() + "\n\nநிகழ்வு நேரம்: ${startTime.ifBlank { "குறிப்பிடப்படவில்லை" }} - ${endTime.ifBlank { "குறிப்பிடப்படவில்லை" }}"
-                                    } else details.trim()
-                                    onSave(
-                                        RecordForm(
-                                            title = resolvedTitle,
-                                            details = savedDetails,
-                                            summary = summary.trim(),
-                                            date = date.trim(),
-                                            districtId = districtId.takeIf { it.isNotBlank() },
-                                            category = category,
-                                            priority = priority,
-                                            location = location.trim(),
-                                            designation = designation.trim(),
-                                            organization = organization.trim(),
-                                            phone = phone.trim(),
-                                            email = email.trim(),
-                                            notes = notes.trim()
-                                        )
-                                    )
-                                } catch (error: Exception) {
-                                    message = error.message ?: "சேமிக்க முடியவில்லை."
-                                } finally {
-                                    saving = false
+                title = {
+                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(formTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(if (tab == 0) "விரைவாக எழுதுங்கள்" else if (tab == 1) "நிகழ்வைத் திட்டமிடுங்கள்" else "தொடர்பைச் சேமியுங்கள்",
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
+                navigationIcon = { TextButton(onClick = onBack) { Text("✕", style = MaterialTheme.typography.titleMedium) } },
+                actions = {
+                    Button(
+                        onClick = {
+                            val resolvedTitle = if (tab == 2) title.trim() else autoTitle
+                            when {
+                                resolvedTitle.isBlank() -> message = if (tab == 2) "பெயரை எழுதுங்கள்." else "செய்தியின் முதல் வரியை எழுதுங்கள்; அதுவே தலைப்பாகும்."
+                                tab == 2 && phone.isBlank() && email.isBlank() -> message = "தொலைபேசி எண் அல்லது மின்னஞ்சலை எழுதுங்கள்."
+                                else -> scope.launch {
+                                    saving = true
+                                    message = ""
+                                    try {
+                                        val savedDetails = if (tab == 1 && (startTime.isNotBlank() || endTime.isNotBlank())) {
+                                            stripSavedEventTime(details).trim() + "\n\nநிகழ்வு நேரம்: ${startTime.ifBlank { "குறிப்பிடப்படவில்லை" }} - ${endTime.ifBlank { "குறிப்பிடப்படவில்லை" }}"
+                                        } else details.trim()
+                                        onSave(RecordForm(
+                                            title = resolvedTitle, details = savedDetails, summary = summary.trim(), date = date,
+                                            districtId = districtId.takeIf { it.isNotBlank() }, category = category, priority = priority,
+                                            location = location.trim(), designation = designation.trim(), organization = organization.trim(),
+                                            phone = phone.trim(), email = email.trim(), notes = notes.trim()
+                                        ))
+                                    } catch (error: Exception) {
+                                        message = error.message ?: "சேமிக்க முடியவில்லை."
+                                    } finally {
+                                        saving = false
+                                    }
                                 }
                             }
-                        }
-                    },
-                    enabled = !saving,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
-                ) {
-                    if (saving) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    else Text(if (initialForm == null) "சேமிக்கவும்" else "மாற்றத்தைச் சேமிக்கவும்")
+                        },
+                        enabled = !saving,
+                        shape = RoundedCornerShape(16.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+                    ) {
+                        if (saving) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        else Text("சேமி  ✓", fontWeight = FontWeight.SemiBold)
+                    }
                 }
-            }
+            )
         }
     ) { innerPadding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(innerPadding).verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.fillMaxSize().padding(innerPadding).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (tab == 2) {
-                OutlinedTextField(value = title, onValueChange = { title = it }, modifier = Modifier.fillMaxWidth(), label = { Text("பெயர் *") }, singleLine = true)
-                OutlinedTextField(value = phone, onValueChange = { phone = it }, modifier = Modifier.fillMaxWidth(), label = { Text("தொலைபேசி எண்") }, singleLine = true)
-                OutlinedTextField(value = designation, onValueChange = { designation = it }, modifier = Modifier.fillMaxWidth(), label = { Text("பதவி") }, singleLine = true)
-                OutlinedTextField(value = organization, onValueChange = { organization = it }, modifier = Modifier.fillMaxWidth(), label = { Text("நிறுவனம் / அலுவலகம்") }, singleLine = true)
-                OutlinedTextField(value = email, onValueChange = { email = it }, modifier = Modifier.fillMaxWidth(), label = { Text("மின்னஞ்சல்") }, singleLine = true)
-                Text("மாவட்டம்", style = MaterialTheme.typography.labelMedium)
-                DistrictDropdown(districts, districtId, false, { districtId = it }, Modifier.fillMaxWidth())
-                OutlinedTextField(value = notes, onValueChange = { notes = it }, modifier = Modifier.fillMaxWidth(), label = { Text("குறிப்புகள் (விருப்பம்)") }, minLines = 2)
-            } else {
-                OutlinedTextField(
-                    value = details,
-                    onValueChange = { details = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(if (tab == 0) "செய்தி உள்ளடக்கம் * — முதல் பத்தி தலைப்பாகும்" else "நிகழ்வு விவரம் * — முதல் பத்தி தலைப்பாகும்") },
-                    minLines = 7
+                BasicTextField(
+                    value = title, onValueChange = { title = it }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface),
+                    decorationBox = { inner ->
+                        Box {
+                            if (title.isBlank()) Text("தொடர்பின் பெயர்", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            inner()
+                        }
+                    }
                 )
+                Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                EditorLine(phone, { phone = it }, "தொலைபேசி எண்")
+                Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                EditorLine(designation, { designation = it }, "பதவி")
+                EditorLine(organization, { organization = it }, "அலுவலகம் / நிறுவனம்")
+                EditorLine(email, { email = it }, "மின்னஞ்சல்")
+                EditorLine(notes, { notes = it }, "குறிப்புகள்")
+                AssistChip(onClick = { showDistrictPicker = true }, label = { Text("⌖  $selectedDistrictName") }, shape = RoundedCornerShape(14.dp))
+            } else {
                 if (autoTitle.isNotBlank()) {
-                    Text("தானாக உருவாகும் தலைப்பு", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text(autoTitle, style = MaterialTheme.typography.titleMedium)
-                }
-                if (tab == 0) {
-                    OutlinedTextField(value = summary, onValueChange = { summary = it }, modifier = Modifier.fillMaxWidth(), label = { Text("சுருக்கம் (விருப்பம்)") }, minLines = 2)
-                }
-                OutlinedTextField(value = date, onValueChange = { date = it }, modifier = Modifier.fillMaxWidth(), label = { Text(if (tab == 0) "செய்தி தேதி (YYYY-MM-DD)" else "நிகழ்வு தேதி (YYYY-MM-DD)") }, singleLine = true)
-                if (tab == 1) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = startTime, onValueChange = { startTime = it }, modifier = Modifier.weight(1f), label = { Text("தொடக்க நேரம்") }, placeholder = { Text("09:30") }, singleLine = true)
-                        OutlinedTextField(value = endTime, onValueChange = { endTime = it }, modifier = Modifier.weight(1f), label = { Text("முடிவு நேரம்") }, placeholder = { Text("11:00") }, singleLine = true)
+                    Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(horizontal = 13.dp, vertical = 10.dp)) {
+                            Text("தலைப்பு · தானாக", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            Text(autoTitle, style = MaterialTheme.typography.titleMedium, maxLines = 2)
+                        }
                     }
                 }
-                Text("மாவட்டம்", style = MaterialTheme.typography.labelMedium)
-                DistrictDropdown(districts, districtId, false, { districtId = it }, Modifier.fillMaxWidth())
-                Text("துறை / வகை", style = MaterialTheme.typography.labelMedium)
-                ChoiceDropdown(category, categoryOptions, "வகை தேர்வு", { category = it }, Modifier.fillMaxWidth())
-                Text("முன்னுரிமை", style = MaterialTheme.typography.labelMedium)
-                ChoiceDropdown(priority, priorityOptions, "முன்னுரிமை", { priority = it }, Modifier.fillMaxWidth())
-                OutlinedTextField(
-                    value = location,
-                    onValueChange = { location = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(if (category == "police") "காவல் நிலையம் / இடம் (விருப்பம்)" else "இடம் (விருப்பம்)") },
-                    singleLine = true
+                BasicTextField(
+                    value = details, onValueChange = { details = it },
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 2.dp, vertical = 6.dp),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface, lineHeight = 28.sp),
+                    decorationBox = { inner ->
+                        Box(Modifier.fillMaxSize()) {
+                            if (details.isBlank()) Text(
+                                if (tab == 0) "இங்கே செய்தியை எழுதத் தொடங்குங்கள்…\n\nமுதல் பத்தி தானாகத் தலைப்பாகும். தனியாக தலைப்பு உள்ளிட வேண்டியதில்லை."
+                                else "நிகழ்வின் விவரத்தை எழுதத் தொடங்குங்கள்…\n\nமுதல் வரி தானாக அசைன்மென்ட் தலைப்பாகும்.",
+                                style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 28.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            inner()
+                        }
+                    }
                 )
+                Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AssistChip(onClick = { datePickerState.selectedDateMillis = dateToMillis(date); showDatePicker = true }, label = { Text("▦  $date") }, shape = RoundedCornerShape(14.dp))
+                    AssistChip(onClick = { showDistrictPicker = true }, label = { Text("⌖  $selectedDistrictName") }, shape = RoundedCornerShape(14.dp))
+                }
+                Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AssistChip(onClick = { showCategoryPicker = true }, label = { Text("◈  ${categoryDisplayName(category)}") }, shape = RoundedCornerShape(14.dp))
+                    AssistChip(onClick = { showPriorityPicker = true }, label = { Text("⚑  ${priorityDisplayName(priority)}") }, shape = RoundedCornerShape(14.dp))
+                    AssistChip(onClick = { locationDraft = location; showLocationDialog = true },
+                        label = { Text("⌖  ${location.ifBlank { if (category == "police") "காவல் நிலையம்" else "இடம்" }}") },
+                        shape = RoundedCornerShape(14.dp))
+                    if (tab == 0) AssistChip(onClick = { summaryDraft = summary; showSummaryDialog = true },
+                        label = { Text("≡  ${if (summary.isBlank()) "சுருக்கம்" else "சுருக்கம் சேர்க்கப்பட்டது"}") },
+                        shape = RoundedCornerShape(14.dp))
+                }
+                if (tab == 1) {
+                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AssistChip(onClick = {
+                            activeTimeTarget = "start"
+                            parseTime(startTime)?.let { timePickerState.hour = it.first; timePickerState.minute = it.second }
+                        }, label = { Text("◷  ${startTime.ifBlank { "தொடக்க நேரம்" }}") }, shape = RoundedCornerShape(14.dp))
+                        AssistChip(onClick = {
+                            activeTimeTarget = "end"
+                            parseTime(endTime)?.let { timePickerState.hour = it.first; timePickerState.minute = it.second }
+                        }, label = { Text("◷  ${endTime.ifBlank { "முடிவு நேரம்" }}") }, shape = RoundedCornerShape(14.dp))
+                    }
+                }
             }
-            if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.error)
-            Spacer(Modifier.height(6.dp))
+            if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
+
+@Composable
+private fun EditorLine(value: String, onValueChange: (String) -> Unit, placeholder: String) {
+    BasicTextField(
+        value = value, onValueChange = onValueChange, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        decorationBox = { inner ->
+            Box {
+                if (value.isBlank()) Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                inner()
+            }
+        }
+    )
+}
+
+@Composable
+private fun NewsSourceWordmark(compact: Boolean = false) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 13.dp)) {
+        Surface(
+            modifier = Modifier.size(if (compact) 38.dp else 76.dp),
+            shape = RoundedCornerShape(if (compact) 12.dp else 23.dp),
+            color = Color(0xFF1C2B63),
+            shadowElevation = if (compact) 2.dp else 8.dp
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text("N", style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black, fontSize = if (compact) 22.sp else 43.sp), color = Color.White)
+                Text("•", modifier = Modifier.offset(x = if (compact) 9.dp else 18.dp, y = if (compact) 8.dp else 17.dp), style = MaterialTheme.typography.titleLarge, color = Color(0xFF4DD6C8))
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            Text("NEWS", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black, letterSpacing = if (compact) 1.2.sp else 4.sp, fontSize = if (compact) 13.sp else 26.sp, lineHeight = if (compact) 16.sp else 29.sp), color = MaterialTheme.colorScheme.onSurface)
+            Text("SOURCE", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = if (compact) 1.sp else 3.5.sp, fontSize = if (compact) 11.sp else 22.sp, lineHeight = if (compact) 13.sp else 25.sp), color = MaterialTheme.colorScheme.primary)
+            if (!compact) Text("REPORTER WORKSPACE", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.7.sp, fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.tertiary)
+        }
+    }
+}
+
+private fun categoryDisplayName(value: String): String = categoryOptions.firstOrNull { it.second == value }?.first ?: value.ifBlank { "வகை தேர்வு" }
+private fun priorityDisplayName(value: String): String = priorityOptions.firstOrNull { it.second == value }?.first ?: value.ifBlank { "சாதாரணம்" }
+private fun stripSavedEventTime(value: String): String = value.replace(Regex("\\n\\s*நிகழ்வு நேரம்:\\s*.*$", RegexOption.DOT_MATCHES_ALL), "").trim()
+private fun readSavedStartTime(value: String): String = Regex("நிகழ்வு நேரம்:\\s*(\\d{2}:\\d{2})\\s*-").find(value)?.groupValues?.getOrNull(1).orEmpty()
+private fun readSavedEndTime(value: String): String = Regex("நிகழ்வு நேரம்:.*?-\\s*(\\d{2}:\\d{2})").find(value)?.groupValues?.getOrNull(1).orEmpty()
+private fun parseTime(value: String): Pair<Int, Int>? = Regex("^(\\d{1,2}):(\\d{2})$").matchEntire(value.trim())?.let {
+    (it.groupValues[1].toIntOrNull() ?: 9) to (it.groupValues[2].toIntOrNull() ?: 0)
+}?.takeIf { it.first in 0..23 && it.second in 0..59 }
+private fun dateToMillis(value: String): Long = runCatching {
+    LocalDate.parse(value).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+}.getOrElse { LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }
+private fun millisToDate(value: Long): String = Instant.ofEpochMilli(value).atZone(ZoneOffset.UTC).toLocalDate().toString()
 
