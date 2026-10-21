@@ -86,12 +86,10 @@ class SupabaseApi(context: Context) {
     }
 
     private fun ensureDeviceIdentity(): Pair<String, String> {
-        var deviceId = preferences.getString("device_id", null)
-        var deviceSecret = preferences.getString("device_secret", null)
-        if (deviceId.isNullOrBlank()) deviceId = UUID.randomUUID().toString()
-        if (deviceSecret.isNullOrBlank()) {
-            deviceSecret = UUID.randomUUID().toString() + UUID.randomUUID().toString()
-        }
+        val deviceId = preferences.getString("device_id", null)
+            ?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
+        val deviceSecret = preferences.getString("device_secret", null)
+            ?.takeIf { it.isNotBlank() } ?: (UUID.randomUUID().toString() + UUID.randomUUID().toString())
         preferences.edit()
             .putString("device_id", deviceId)
             .putString("device_secret", deviceSecret)
