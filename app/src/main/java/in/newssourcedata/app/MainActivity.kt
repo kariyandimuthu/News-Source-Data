@@ -14,6 +14,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import java.time.Instant
 import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -1006,7 +1008,7 @@ private fun RecordFormScreen(
                 OutlinedTextField(value = locationDraft, onValueChange = { locationDraft = it }, modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text(if (category == "police") "காவல் நிலையப் பெயர்" else "இடம் (விருப்பம்)") }, singleLine = true)
             },
-            confirmButton = { TextButton(onClick = { location = locationDraft.trim(); showLocationDialog = false }) { Text("சேமி") } },
+            confirmButton = { TextButton(onClick = { location = locationDraft.trim(); showLocationDialog = false }) { Text("சரி") } },
             dismissButton = { TextButton(onClick = { showLocationDialog = false }) { Text("ரத்து") } }
         )
     }
@@ -1019,7 +1021,7 @@ private fun RecordFormScreen(
                 OutlinedTextField(value = summaryDraft, onValueChange = { summaryDraft = it }, modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text("சுருக்கமாக எழுதுங்கள்") }, minLines = 3)
             },
-            confirmButton = { TextButton(onClick = { summary = summaryDraft.trim(); showSummaryDialog = false }) { Text("சேமி") } },
+            confirmButton = { TextButton(onClick = { summary = summaryDraft.trim(); showSummaryDialog = false }) { Text("சரி") } },
             dismissButton = { TextButton(onClick = { showSummaryDialog = false }) { Text("ரத்து") } }
         )
     }
@@ -1140,7 +1142,7 @@ private fun RecordFormScreen(
                     }
                 )
                 Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AssistChip(onClick = { datePickerState.selectedDateMillis = dateToMillis(date); showDatePicker = true }, label = { Text("▦  $date") }, shape = RoundedCornerShape(14.dp))
+                    AssistChip(onClick = { datePickerState.selectedDateMillis = dateToMillis(date); showDatePicker = true }, label = { Text("▦  ${dateLabel(date)}") }, shape = RoundedCornerShape(14.dp))
                     AssistChip(onClick = { showDistrictPicker = true }, label = { Text("⌖  $selectedDistrictName") }, shape = RoundedCornerShape(14.dp))
                 }
                 Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1157,11 +1159,15 @@ private fun RecordFormScreen(
                     Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         AssistChip(onClick = {
                             activeTimeTarget = "start"
-                            parseTime(startTime)?.let { timePickerState.hour = it.first; timePickerState.minute = it.second }
+                            val picked = parseTime(startTime) ?: (9 to 0)
+                            timePickerState.hour = picked.first
+                            timePickerState.minute = picked.second
                         }, label = { Text("◷  ${startTime.ifBlank { "தொடக்க நேரம்" }}") }, shape = RoundedCornerShape(14.dp))
                         AssistChip(onClick = {
                             activeTimeTarget = "end"
-                            parseTime(endTime)?.let { timePickerState.hour = it.first; timePickerState.minute = it.second }
+                            val picked = parseTime(endTime) ?: (10 to 0)
+                            timePickerState.hour = picked.first
+                            timePickerState.minute = picked.second
                         }, label = { Text("◷  ${endTime.ifBlank { "முடிவு நேரம்" }}") }, shape = RoundedCornerShape(14.dp))
                     }
                 }
@@ -1221,3 +1227,7 @@ private fun dateToMillis(value: String): Long = runCatching {
 }.getOrElse { LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }
 private fun millisToDate(value: Long): String = Instant.ofEpochMilli(value).atZone(ZoneOffset.UTC).toLocalDate().toString()
 
+
+private fun dateLabel(value: String): String = runCatching {
+    LocalDate.parse(value).format(DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH))
+}.getOrDefault(value)
