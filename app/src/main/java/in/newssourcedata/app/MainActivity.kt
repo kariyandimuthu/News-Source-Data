@@ -23,7 +23,23 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import android.graphics.BitmapFactory
 import android.content.Context
 import android.content.Intent
+import android.content.ClipboardManager
 import android.net.Uri
+import android.widget.ImageView
+import androidx.core.content.FileProvider
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.viewinterop.AndroidView
+import com.google.android.gms.tasks.Task
+import com.google.mlkit.common.model.DownloadConditions
+import com.google.mlkit.nl.translate.TranslateLanguage
+import com.google.mlkit.nl.translate.Translation
+import com.google.mlkit.nl.translate.TranslatorOptions
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -330,7 +346,9 @@ private data class RecordForm(
     val organization: String = "",
     val phone: String = "",
     val email: String = "",
-    val notes: String = ""
+    val notes: String = "",
+    val attachmentPaths: List<String> = emptyList(),
+    val photoUri: Uri? = null
 )
 
 private val categoryOptions = listOf(
@@ -369,6 +387,7 @@ private fun MainAppScreen(
     onSignOut: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var showStockVideos by remember { mutableStateOf(false) }
     var activeFormTab by remember { mutableStateOf<Int?>(null) }
     var activeEditId by remember { mutableStateOf<String?>(null) }
     var activeFormInitial by remember { mutableStateOf<RecordForm?>(null) }
@@ -436,13 +455,19 @@ private fun MainAppScreen(
 
     val context = LocalContext.current
 
+    if (showStockVideos) {
+        StockVideosScreen(api = api, onBack = { showStockVideos = false })
+        return
+    }
+
     // Handle Android system Back before the activity closes.
     BackHandler(
         enabled = activeFormTab != null || previewNews != null || previewAssignment != null ||
             pendingDelete != null || showDistrictFilter || showDateFilter || showCategoryFilter ||
-            addMenuExpanded || showAiAssistant || showPasswordDialog || showDeviceApprovalDialog || selectedTab != 0
+            addMenuExpanded || showAiAssistant || showPasswordDialog || showDeviceApprovalDialog || showStockVideos || selectedTab != 0
     ) {
         when {
+            showStockVideos -> showStockVideos = false
             activeFormTab != null -> {
                 activeFormTab = null
                 activeEditId = null
@@ -555,7 +580,8 @@ private fun MainAppScreen(
                     Spacer(Modifier.height(16.dp))
                     val articleBody = articleBodyWithoutRepeatedHeadline(item.headline, item.body)
                     Column(modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                        if (articleBody.isNotBlank()) Text(articleBody, style = MaterialTheme.typography.bodyLarge)
+                        if (item.attachmentPaths.isNotEmpty()) NewsPhotoStrip(api, item.attachmentPaths)
+                         if (articleBody.isNotBlank()) Text(articleBody, style = MaterialTheme.typography.bodyLarge)
                     }
                     Button(onClick = { previewNews = null }, modifier = Modifier.fillMaxWidth()) { Text("மூடு") }
                 }
@@ -689,6 +715,10 @@ private fun MainAppScreen(
                     DropdownMenuItem(text = { Text("☎  தொடர்பு சேர்க்க") }, onClick = {
                         addMenuExpanded = false; activeEditId = null; activeFormInitial = null; activeFormTab = 2
                     })
+                    DropdownMenuItem(text = { Text("🎞  Stock Videos") }, onClick = {
+                        addMenuExpanded = false
+                        showStockVideos = true
+                    })
                     DropdownMenuItem(text = { Text("🤖  AI செய்தியாளர் உதவியாளர்") }, onClick = {
                         addMenuExpanded = false
                         showAiAssistant = true
@@ -791,11 +821,11 @@ private fun MainAppScreen(
                                     items(pageItems, key = { it.id }) { item ->
                                         val districtName = districtNames[item.districtId] ?: ""
                                         NewsCard(
-                                            item = item, districtName = districtName,
+                                            api = api, item = item, districtName = districtName,
                                             onPreview = { previewNews = item },
                                             onEdit = {
                                                 activeEditId = item.id
-                                                activeFormInitial = RecordForm(item.headline, item.body, item.summary, item.newsDate, item.districtId, item.category, item.priority, item.location.orEmpty())
+                                                activeFormInitial = RecordForm(item.headline, item.body, item.summary, item.newsDate, item.districtId, item.category, item.priority, item.location.orEmpty(), attachmentPaths = item.attachmentPaths)
                                                 activeFormTab = 0
                                             },
                                             onDelete = { pendingDelete = 0 to item.id },
@@ -991,7 +1021,7 @@ private fun IconAction(icon: ImageVector, label: String, onClick: () -> Unit, ti
 }
 
 @Composable
-private fun NewsCard(item: NewsRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onShare: () -> Unit) {
+private fun NewsCard(api: SupabaseApi, item: NewsRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onShare: () -> Unit) {
     ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp)) {
         Row(modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 9.dp, bottom = 9.dp, end = 5.dp),
             verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -1007,6 +1037,7 @@ private fun NewsCard(item: NewsRecord, districtName: String, onPreview: () -> Un
                 if (meta.isNotBlank()) Text(meta, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 val previewBody = articleBodyWithoutRepeatedHeadline(item.headline, item.body)
                 if (previewBody.isNotBlank()) Text(previewBody, style = MaterialTheme.typography.bodySmall, maxLines = 3, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (item.attachmentPaths.isNotEmpty()) NewsPhotoStrip(api, item.attachmentPaths.take(2))
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 IconAction(Icons.Default.Visibility, "முன்னோட்டம்", onPreview, MaterialTheme.colorScheme.primary)
