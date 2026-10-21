@@ -49,22 +49,8 @@ on conflict (id) do update
 set public = false,
     file_size_limit = least(coalesce(storage.buckets.file_size_limit, 4194304), 4194304);
 
+-- No authenticated client receives direct Storage access. The app transfers photos
+-- through the news-media Edge Function, which verifies the JWT, device secret,
+-- device approval, and shared-session cutoff before using the service role.
 drop policy if exists news_photos_bucket_authenticated_access on storage.objects;
-create policy news_photos_bucket_authenticated_access on storage.objects
-    for all to authenticated
-    using (bucket_id = 'news-photos')
-    with check (bucket_id = 'news-photos');
-
 drop policy if exists news_photos_approved_device_only on storage.objects;
-create policy news_photos_approved_device_only on storage.objects
-    as restrictive for all to authenticated
-    using (
-        bucket_id = 'news-photos'
-        and public.is_approved_app_device()
-        and public.is_current_auth_session()
-    )
-    with check (
-        bucket_id = 'news-photos'
-        and public.is_approved_app_device()
-        and public.is_current_auth_session()
-    );
