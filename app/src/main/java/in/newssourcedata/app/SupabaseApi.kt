@@ -566,7 +566,13 @@ class SupabaseApi(context: Context) {
     private fun currentAccessToken(): String =
         preferences.getString("access_token", null) ?: throw IllegalStateException("உள்நுழையவும்.")
 
-    private fun storageRequest(path: String, method: String, body: ByteArray?, contentType: String?): ByteArray {
+    private fun storageRequest(
+        path: String,
+        method: String,
+        body: ByteArray?,
+        contentType: String?,
+        allowRefresh: Boolean = true
+    ): ByteArray {
         val token = currentAccessToken()
         val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
@@ -586,6 +592,9 @@ class SupabaseApi(context: Context) {
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val responseBytes = stream?.use { it.readBytes() } ?: ByteArray(0)
+            if (code == 401 && allowRefresh && refreshSession()) {
+                return storageRequest(path, method, body, contentType, allowRefresh = false)
+            }
             if (code !in 200..299) {
                 throw IllegalStateException(friendlyError(String(responseBytes, Charsets.UTF_8), code))
             }
