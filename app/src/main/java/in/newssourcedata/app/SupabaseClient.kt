@@ -87,15 +87,6 @@ class SupabaseClient(context: Context) {
         prefs.edit().putString("access_token", token).putString("refresh_token", json.optString("refresh_token")).putString("email", email.trim()).apply()
     }
 
-    fun signUp(email: String, password: String) {
-        val response = request("/auth/v1/signup", "POST",
-            JSONObject().put("email", email.trim()).put("password", password), auth = false)
-        val json = JSONObject(response)
-        val token = json.optString("access_token")
-        if (token.isNotBlank()) prefs.edit().putString("access_token", token).putString("refresh_token", json.optString("refresh_token")).putString("email", email.trim()).apply()
-        else throw IllegalStateException("கணக்கு உருவாக்கப்பட்டது. மின்னஞ்சல் உறுதிப்படுத்தல் தேவைப்பட்டால் உறுதிப்படுத்திய பின் உள்நுழையவும்.")
-    }
-
     fun signOut() { prefs.edit().remove("access_token").remove("refresh_token").remove("email").apply() }
 
     fun currentProfile(): JSONObject {
@@ -110,14 +101,6 @@ class SupabaseClient(context: Context) {
         val id = JSONObject(response).optString("id")
         if (id.isBlank()) throw IllegalStateException("பயனர் அடையாளம் கிடைக்கவில்லை")
         return id
-    }
-
-    fun pendingProfiles(): JSONArray =
-        JSONArray(request("/rest/v1/profiles?select=id,email,display_name,role,approval_status&approval_status=eq.pending&order=created_at.asc", "GET"))
-
-    fun setApproval(userId: String, status: String) {
-        require(status in listOf("approved", "rejected", "revoked"))
-        request("/rest/v1/profiles?id=eq.$userId", "PATCH", JSONObject().put("approval_status", status), prefer = "return=minimal")
     }
 
     fun list(table: String): JSONArray = JSONArray(request("/rest/v1/$table?select=*&order=created_at.desc", "GET"))
