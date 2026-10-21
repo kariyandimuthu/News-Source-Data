@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -5,10 +7,10 @@ plugins {
     id("com.google.devtools.ksp") version "2.0.21-1.0.28"
 }
 
-val localProperties = java.util.Properties().apply {
+val localProperties = Properties().apply {
     val localFile = rootProject.file("local.properties")
     if (localFile.exists()) {
-        localFile.inputStream().use { load(it) }
+        localFile.inputStream().use { stream -> this.load(stream) }
     }
 }
 val supabaseUrl = localProperties.getProperty("SUPABASE_URL")
