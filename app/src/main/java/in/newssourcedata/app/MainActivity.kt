@@ -1865,6 +1865,7 @@ private fun RemoteVideoThumbnail(url: String, modifier: Modifier = Modifier) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun StockVideosScreen(api: SupabaseApi, onBack: () -> Unit) {
+    BackHandler(enabled = true, onBack = onBack)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var videos by remember { mutableStateOf<List<StockVideoRecord>>(emptyList()) }
