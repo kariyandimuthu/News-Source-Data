@@ -1,6 +1,8 @@
 package `in`.newssourcedata.app
 
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -11,6 +13,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -249,6 +254,11 @@ private fun MainAppScreen(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var activeFormTab by remember { mutableStateOf<Int?>(null) }
+    var activeEditId by remember { mutableStateOf<String?>(null) }
+    var activeFormInitial by remember { mutableStateOf<RecordForm?>(null) }
+    var addMenuExpanded by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    var previewNews by remember { mutableStateOf<NewsRecord?>(null) }
     var refreshVersion by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(true) }
     var statusMessage by remember { mutableStateOf("") }
@@ -279,44 +289,95 @@ private fun MainAppScreen(
 
     val districtNames = remember(districts) { districts.associate { it.id to it.name } }
 
+    pendingDelete?.let { request ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("நீக்க வேண்டுமா?") },
+            text = { Text("இந்தப் பதிவு நிரந்தரமாக நீக்கப்படும். தொடரவா?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        try {
+                            when (request.first) {
+                                0 -> api.deleteNews(request.second)
+                                1 -> api.deleteAssignment(request.second)
+                                else -> api.deleteContact(request.second)
+                            }
+                            refreshVersion += 1
+                            statusMessage = "பதிவு நீக்கப்பட்டது."
+                        } catch (error: Exception) {
+                            statusMessage = error.message ?: "நீக்க முடியவில்லை."
+                        } finally {
+                            pendingDelete = null
+                        }
+                    }
+                }) { Text("நீக்கு") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("ரத்து") }
+            }
+        )
+    }
+
+    previewNews?.let { item ->
+        Dialog(
+            onDismissRequest = { previewNews = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Column(modifier = Modifier.fillMaxSize().padding(18.dp)) {
+                    Text("செய்தி முன்னோட்டம்", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(12.dp))
+                    Text(item.headline, style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(8.dp))
+                    Text(listOf(item.newsDate, districtNames[item.districtId].orEmpty(), item.location.orEmpty())
+                        .filter { it.isNotBlank() }.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(16.dp))
+                    val articleBody = articleBodyWithoutRepeatedHeadline(item.headline, item.body)
+                    Column(modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                        if (articleBody.isNotBlank()) Text(articleBody, style = MaterialTheme.typography.bodyLarge)
+                    }
+                    Button(onClick = { previewNews = null }, modifier = Modifier.fillMaxWidth()) { Text("மூடு") }
+                }
+            }
+        }
+    }
+
     if (activeFormTab != null) {
         RecordFormScreen(
             tab = activeFormTab ?: selectedTab,
             districts = districts,
-            onBack = { activeFormTab = null },
+            initialForm = activeFormInitial,
+            onBack = {
+                activeFormTab = null
+                activeEditId = null
+                activeFormInitial = null
+            },
             onSave = { form ->
-                when (activeFormTab ?: selectedTab) {
-                    0 -> api.addNews(
-                        headline = form.title,
-                        body = form.details,
-                        summary = form.summary,
-                        newsDate = form.date,
-                        districtId = form.districtId,
-                        category = form.category,
-                        priority = form.priority,
-                        location = form.location
-                    )
-                    1 -> api.addAssignment(
-                        title = form.title,
-                        description = form.details,
-                        eventDate = form.date,
-                        districtId = form.districtId,
-                        category = form.category,
-                        priority = form.priority,
-                        location = form.location
-                    )
-                    else -> api.addContact(
-                        fullName = form.title,
-                        designation = form.designation,
-                        organization = form.organization,
-                        phone = form.phone,
-                        email = form.email,
-                        districtId = form.districtId,
-                        notes = form.notes
-                    )
+                val targetTab = activeFormTab ?: selectedTab
+                val editId = activeEditId
+                when (targetTab) {
+                    0 -> if (editId == null) {
+                        api.addNews(form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location)
+                    } else {
+                        api.updateNews(editId, form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location)
+                    }
+                    1 -> if (editId == null) {
+                        api.addAssignment(form.title, form.details, form.date, form.districtId, form.category, form.priority, form.location)
+                    } else {
+                        api.updateAssignment(editId, form.title, form.details, form.date, form.districtId, form.category, form.priority, form.location)
+                    }
+                    else -> if (editId == null) {
+                        api.addContact(form.title, form.designation, form.organization, form.phone, form.email, form.districtId, form.notes)
+                    } else {
+                        api.updateContact(editId, form.title, form.designation, form.organization, form.phone, form.email, form.districtId, form.notes)
+                    }
                 }
                 refreshVersion += 1
                 activeFormTab = null
+                activeEditId = null
+                activeFormInitial = null
             }
         )
         return
@@ -354,8 +415,21 @@ private fun MainAppScreen(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { activeFormTab = selectedTab }) {
-                Text("+", style = MaterialTheme.typography.headlineSmall)
+            Column(horizontalAlignment = Alignment.End) {
+                DropdownMenu(expanded = addMenuExpanded, onDismissRequest = { addMenuExpanded = false }) {
+                    DropdownMenuItem(text = { Text("📰  செய்தி சேர்க்க") }, onClick = {
+                        addMenuExpanded = false; activeEditId = null; activeFormInitial = null; activeFormTab = 0
+                    })
+                    DropdownMenuItem(text = { Text("📋  அசைன்மென்ட் சேர்க்க") }, onClick = {
+                        addMenuExpanded = false; activeEditId = null; activeFormInitial = null; activeFormTab = 1
+                    })
+                    DropdownMenuItem(text = { Text("☎  தொடர்பு சேர்க்க") }, onClick = {
+                        addMenuExpanded = false; activeEditId = null; activeFormInitial = null; activeFormTab = 2
+                    })
+                }
+                FloatingActionButton(onClick = { addMenuExpanded = true }) {
+                    Text("+", style = MaterialTheme.typography.headlineSmall)
+                }
             }
         }
     ) { padding ->
@@ -416,7 +490,17 @@ private fun MainAppScreen(
                         else LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(filtered, key = { it.id }) { item ->
                                 val districtName = districtNames[item.districtId] ?: "மாவட்டம் குறிப்பிடப்படவில்லை"
-                                NewsCard(item, districtName)
+                                NewsCard(
+                                    item = item,
+                                    districtName = districtName,
+                                    onPreview = { previewNews = item },
+                                    onEdit = {
+                                        activeEditId = item.id
+                                        activeFormInitial = RecordForm(item.headline, item.body, item.summary, item.newsDate, item.districtId, item.category, item.priority, item.location.orEmpty())
+                                        activeFormTab = 0
+                                    },
+                                    onDelete = { pendingDelete = 0 to item.id }
+                                )
                             }
                         }
                     }
@@ -433,7 +517,16 @@ private fun MainAppScreen(
                         else LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(filtered, key = { it.id }) { item ->
                                 val districtName = districtNames[item.districtId] ?: "மாவட்டம் குறிப்பிடப்படவில்லை"
-                                AssignmentCard(item, districtName)
+                                AssignmentCard(
+                                    item = item,
+                                    districtName = districtName,
+                                    onEdit = {
+                                        activeEditId = item.id
+                                        activeFormInitial = RecordForm(item.title, item.description, date = item.eventDate, districtId = item.districtId, category = item.category, priority = item.priority, location = item.location.orEmpty())
+                                        activeFormTab = 1
+                                    },
+                                    onDelete = { pendingDelete = 1 to item.id }
+                                )
                             }
                         }
                     }
@@ -451,7 +544,16 @@ private fun MainAppScreen(
                         else LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(filtered, key = { it.id }) { item ->
                                 val districtName = districtNames[item.districtId] ?: "மாவட்டம் குறிப்பிடப்படவில்லை"
-                                ContactCard(item, districtName)
+                                ContactCard(
+                                    item = item,
+                                    districtName = districtName,
+                                    onEdit = {
+                                        activeEditId = item.id
+                                        activeFormInitial = RecordForm(item.fullName, date = "", districtId = item.districtId, designation = item.designation, organization = item.organization, phone = item.phone, email = item.email, notes = item.notes)
+                                        activeFormTab = 2
+                                    },
+                                    onDelete = { pendingDelete = 2 to item.id }
+                                )
                             }
                         }
                     }
@@ -484,24 +586,35 @@ private fun EmptyListMessage(message: String) {
     }
 }
 
+private fun articleBodyWithoutRepeatedHeadline(headline: String, body: String): String {
+    val cleanBody = body.trim()
+    if (cleanBody.isBlank() || headline.isBlank()) return cleanBody
+    val normalizedHeadline = headline.trim().replace("\r\n", "\n")
+    val normalizedBody = cleanBody.replace("\r\n", "\n")
+    val firstParagraph = normalizedBody.substringBefore("\n\n").trim()
+    if (firstParagraph.equals(normalizedHeadline, ignoreCase = true)) {
+        return normalizedBody.substringAfter("\n\n", "").trim()
+    }
+    val firstLine = normalizedBody.lineSequence().firstOrNull()?.trim().orEmpty()
+    return if (firstLine.equals(normalizedHeadline, ignoreCase = true)) {
+        normalizedBody.lineSequence().drop(1).joinToString("\n").trim()
+    } else cleanBody
+}
+
 @Composable
-private fun NewsCard(item: NewsRecord, districtName: String) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(9.dp)
-        ) {
+private fun NewsCard(
+    item: NewsRecord,
+    districtName: String,
+    onPreview: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.secondaryContainer) {
-                    Text("✎", modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), color = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(item.category.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text(item.newsDate + " · " + districtName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(listOf(item.newsDate, districtName).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Surface(shape = MaterialTheme.shapes.small, color = when (item.priority) {
                     "urgent" -> MaterialTheme.colorScheme.errorContainer
@@ -512,73 +625,108 @@ private fun NewsCard(item: NewsRecord, districtName: String) {
                 }
             }
             Text(item.headline, style = MaterialTheme.typography.titleLarge)
-            if (item.summary.isNotBlank()) Text(item.summary, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (item.body.isNotBlank()) Text(item.body, style = MaterialTheme.typography.bodyMedium, maxLines = 4)
+            val previewBody = articleBodyWithoutRepeatedHeadline(item.headline, item.body)
+            if (previewBody.isNotBlank()) Text(previewBody, style = MaterialTheme.typography.bodyMedium, maxLines = 4)
             if (!item.location.isNullOrBlank()) Text("⌖  " + item.location, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceVariant) {
-                    Text(item.status, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall)
-                }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onPreview, modifier = Modifier.weight(1f)) { Text("முன்னோட்டம்") }
+                OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("திருத்து") }
+                TextButton(onClick = onDelete) { Text("நீக்கு", color = MaterialTheme.colorScheme.error) }
             }
         }
     }
-}@Composable
-private fun AssignmentCard(item: AssignmentRecord, districtName: String) {
+}
+
+@Composable
+private fun AssignmentCard(
+    item: AssignmentRecord,
+    districtName: String,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
     val dateParts = item.eventDate.split("-")
     val day = dateParts.getOrNull(2)?.takeIf { it.isNotBlank() } ?: "—"
-    val month = try { LocalDate.parse(item.eventDate).month.name.take(3) } catch (_: Exception) { "DATE" }
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge
-    ) {
-        Row(modifier = Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
-            Surface(
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.width(62.dp)
-            ) {
-                Column(modifier = Modifier.padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(month, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text(day, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+    val month = try { LocalDate.parse(item.eventDate).month.name.take(3) } catch (_: Exception) { "" }
+    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.width(62.dp)) {
+                    Column(modifier = Modifier.padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (month.isNotBlank()) Text(month, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text(day, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(listOf(item.status.replace("_", " "), item.priority).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(item.title, style = MaterialTheme.typography.titleMedium)
+                    if (item.description.isNotBlank()) Text(item.description, style = MaterialTheme.typography.bodyMedium, maxLines = 3, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val locationLine = listOf(districtName, item.location.orEmpty()).filter { it.isNotBlank() && it != "மாவட்டம் குறிப்பிடப்படவில்லை" }.joinToString(" · ")
+                    if (locationLine.isNotBlank()) Text("⌖  $locationLine", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(item.status.replace("_", " "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text("· " + item.priority, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text(item.title, style = MaterialTheme.typography.titleMedium)
-                if (item.description.isNotBlank()) Text(item.description, style = MaterialTheme.typography.bodyMedium, maxLines = 3, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("⌖  $districtName" + if (!item.location.isNullOrBlank()) " · " + item.location else "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("திருத்து") }
+                TextButton(onClick = onDelete) { Text("நீக்கு", color = MaterialTheme.colorScheme.error) }
             }
         }
     }
-}@Composable
-private fun ContactCard(item: ContactRecord, districtName: String) {
+}
+
+@Composable
+private fun ContactCard(
+    item: ContactRecord,
+    districtName: String,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val context = LocalContext.current
     val initials = item.fullName.trim().split(Regex("\\s+")).take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("")
     ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(14.dp),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(13.dp)
-        ) {
-            Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.tertiaryContainer) {
-                Box(modifier = Modifier.size(54.dp), contentAlignment = Alignment.Center) {
-                    Text(initials.ifBlank { "?" }, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onTertiaryContainer)
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+                Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.tertiaryContainer) {
+                    Box(modifier = Modifier.size(54.dp), contentAlignment = Alignment.Center) {
+                        Text(initials.ifBlank { "?" }, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    }
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(item.fullName, style = MaterialTheme.typography.titleMedium)
+                    val roleLine = listOf(item.designation, item.organization).filter { it.isNotBlank() }.joinToString(" · ")
+                    if (roleLine.isNotBlank()) Text(roleLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (item.phone.isNotBlank()) Text("☎  " + item.phone, style = MaterialTheme.typography.bodyMedium)
+                    if (item.email.isNotBlank()) Text("✉  " + item.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (districtName.isNotBlank() && districtName != "மாவட்டம் குறிப்பிடப்படவில்லை") Text(districtName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    if (item.notes.isNotBlank()) Text(item.notes, style = MaterialTheme.typography.bodySmall, maxLines = 2)
                 }
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(item.fullName, style = MaterialTheme.typography.titleMedium)
-                val roleLine = listOf(item.designation, item.organization).filter { it.isNotBlank() }.joinToString(" · ")
-                if (roleLine.isNotBlank()) Text(roleLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (item.phone.isNotBlank()) Text("☎  " + item.phone, style = MaterialTheme.typography.bodyMedium)
-                if (item.email.isNotBlank()) Text("✉  " + item.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(districtName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                if (item.notes.isNotBlank()) Text(item.notes, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${item.phone.trim()}"))
+                        context.startActivity(dialIntent)
+                    },
+                    enabled = item.phone.isNotBlank(),
+                    modifier = Modifier.weight(1f)
+                ) { Text("அழைக்க") }
+                OutlinedButton(
+                    onClick = {
+                        val digits = item.phone.filter { it.isDigit() }
+                        val international = if (digits.length == 10) "91$digits" else digits
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$international")))
+                    },
+                    enabled = item.phone.isNotBlank(),
+                    modifier = Modifier.weight(1f)
+                ) { Text("WhatsApp") }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("திருத்து") }
+                TextButton(onClick = onDelete) { Text("நீக்கு", color = MaterialTheme.colorScheme.error) }
             }
         }
     }
-}@Composable
+}
+
+@Composable
 private fun DistrictDropdown(
     districts: List<District>,
     selectedId: String,
@@ -645,189 +793,144 @@ private fun ChoiceDropdown(
 private fun RecordFormScreen(
     tab: Int,
     districts: List<District>,
+    initialForm: RecordForm? = null,
     onBack: () -> Unit,
     onSave: suspend (RecordForm) -> Unit
 ) {
-    var title by remember { mutableStateOf("") }
-    var details by remember { mutableStateOf("") }
-    var summary by remember { mutableStateOf("") }
-    var date by remember { mutableStateOf(LocalDate.now().toString()) }
-    var districtId by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("general") }
-    var priority by remember { mutableStateOf("normal") }
-    var location by remember { mutableStateOf("") }
-    var designation by remember { mutableStateOf("") }
-    var organization by remember { mutableStateOf("") }
-    var phone by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
+    var title by remember(tab, initialForm) { mutableStateOf(initialForm?.title ?: "") }
+    var details by remember(tab, initialForm) { mutableStateOf(initialForm?.details ?: "") }
+    var summary by remember(tab, initialForm) { mutableStateOf(initialForm?.summary ?: "") }
+    var date by remember(tab, initialForm) { mutableStateOf(initialForm?.date?.takeIf { it.isNotBlank() } ?: LocalDate.now().toString()) }
+    var districtId by remember(tab, initialForm) { mutableStateOf(initialForm?.districtId.orEmpty()) }
+    var category by remember(tab, initialForm) { mutableStateOf(initialForm?.category ?: "general") }
+    var priority by remember(tab, initialForm) { mutableStateOf(initialForm?.priority ?: "normal") }
+    var location by remember(tab, initialForm) { mutableStateOf(initialForm?.location ?: "") }
+    var designation by remember(tab, initialForm) { mutableStateOf(initialForm?.designation ?: "") }
+    var organization by remember(tab, initialForm) { mutableStateOf(initialForm?.organization ?: "") }
+    var phone by remember(tab, initialForm) { mutableStateOf(initialForm?.phone ?: "") }
+    var email by remember(tab, initialForm) { mutableStateOf(initialForm?.email ?: "") }
+    var notes by remember(tab, initialForm) { mutableStateOf(initialForm?.notes ?: "") }
+    var startTime by remember(tab, initialForm) { mutableStateOf("") }
+    var endTime by remember(tab, initialForm) { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val formTitle = when (tab) {
-        0 -> "புதிய செய்தி"
-        1 -> "புதிய அசைன்மென்ட்"
-        else -> "புதிய தொடர்பு"
+        0 -> if (initialForm == null) "புதிய செய்தி" else "செய்தியைத் திருத்து"
+        1 -> if (initialForm == null) "புதிய அசைன்மென்ட்" else "அசைன்மென்டைத் திருத்து"
+        else -> if (initialForm == null) "புதிய தொடர்பு" else "தொடர்பைத் திருத்து"
     }
+    val autoTitle = details.trim().split(Regex("\\n\\s*\\n|\\r?\\n")).firstOrNull()?.trim().orEmpty().take(180)
 
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        TextButton(onClick = onBack) { Text("← திரும்ப") }
-        Text(formTitle, style = MaterialTheme.typography.headlineSmall)
-
-        OutlinedTextField(
-            value = title,
-            onValueChange = { title = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(if (tab == 2) "பெயர் *" else "தலைப்பு *") },
-            singleLine = true
-        )
-
-        if (tab != 2) {
-            Text("மாவட்டம்", style = MaterialTheme.typography.labelMedium)
-            DistrictDropdown(
-                districts = districts,
-                selectedId = districtId,
-                allowAll = false,
-                onSelected = { districtId = it },
-                modifier = Modifier.fillMaxWidth()
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(formTitle) },
+                navigationIcon = { TextButton(onClick = onBack) { Text("← திரும்ப") } }
             )
-            Text("வகை", style = MaterialTheme.typography.labelMedium)
-            ChoiceDropdown(
-                selected = category,
-                choices = categoryOptions,
-                placeholder = "வகை தேர்வு",
-                onSelected = { category = it },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Text("முன்னுரிமை", style = MaterialTheme.typography.labelMedium)
-            ChoiceDropdown(
-                selected = priority,
-                choices = priorityOptions,
-                placeholder = "முன்னுரிமை",
-                onSelected = { priority = it },
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = date,
-                onValueChange = { date = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(if (tab == 0) "செய்தி தேதி (YYYY-MM-DD)" else "நிகழ்வு தேதி (YYYY-MM-DD)") },
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = location,
-                onValueChange = { location = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("இடம் (விருப்பம்)") },
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = details,
-                onValueChange = { details = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(if (tab == 0) "செய்தி விவரம்" else "அசைன்மென்ட் விவரம்") },
-                minLines = 3
-            )
-            if (tab == 0) {
-                OutlinedTextField(
-                    value = summary,
-                    onValueChange = { summary = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("சுருக்கம் (விருப்பம்)") },
-                    minLines = 2
-                )
-            }
-        } else {
-            OutlinedTextField(
-                value = phone,
-                onValueChange = { phone = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("தொலைபேசி எண்") },
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = designation,
-                onValueChange = { designation = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("பதவி") },
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = organization,
-                onValueChange = { organization = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("நிறுவனம் / அலுவலகம்") },
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("மின்னஞ்சல்") },
-                singleLine = true
-            )
-            Text("மாவட்டம்", style = MaterialTheme.typography.labelMedium)
-            DistrictDropdown(
-                districts = districts,
-                selectedId = districtId,
-                allowAll = false,
-                onSelected = { districtId = it },
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = notes,
-                onValueChange = { notes = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("குறிப்புகள்") },
-                minLines = 2
-            )
-        }
-
-        if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.error)
-        Button(
-            onClick = {
-                if (title.isBlank()) {
-                    message = "பெயர் அல்லது தலைப்பை உள்ளிடவும்."
-                } else if (tab != 2 && runCatching { LocalDate.parse(date) }.isFailure) {
-                    message = "தேதியை YYYY-MM-DD வடிவில் உள்ளிடவும்."
-                } else {
-                    scope.launch {
-                        saving = true
-                        message = ""
-                        try {
-                            onSave(
-                                RecordForm(
-                                    title = title.trim(),
-                                    details = details.trim(),
-                                    summary = summary.trim(),
-                                    date = date.trim(),
-                                    districtId = districtId.takeIf { it.isNotBlank() },
-                                    category = category,
-                                    priority = priority,
-                                    location = location.trim(),
-                                    designation = designation.trim(),
-                                    organization = organization.trim(),
-                                    phone = phone.trim(),
-                                    email = email.trim(),
-                                    notes = notes.trim()
-                                )
-                            )
-                        } catch (error: Exception) {
-                            message = error.message ?: "சேமிக்க முடியவில்லை."
-                        } finally {
-                            saving = false
+        },
+        bottomBar = {
+            Surface(shadowElevation = 6.dp) {
+                Button(
+                    onClick = {
+                        val resolvedTitle = if (tab == 2) title.trim() else autoTitle
+                        when {
+                            resolvedTitle.isBlank() -> message = if (tab == 2) "பெயரை உள்ளிடவும்." else "செய்தியின் முதல் பத்தியை உள்ளிடவும்; அதுவே தலைப்பாகும்."
+                            tab != 2 && runCatching { LocalDate.parse(date) }.isFailure -> message = "தேதியை YYYY-MM-DD வடிவில் உள்ளிடவும்."
+                            tab == 2 && phone.isBlank() && email.isBlank() -> message = "தொலைபேசி எண் அல்லது மின்னஞ்சலை உள்ளிடவும்."
+                            else -> scope.launch {
+                                saving = true
+                                message = ""
+                                try {
+                                    val savedDetails = if (tab == 1 && (startTime.isNotBlank() || endTime.isNotBlank())) {
+                                        "நிகழ்வு நேரம்: ${startTime.ifBlank { "குறிப்பிடப்படவில்லை" }} - ${endTime.ifBlank { "குறிப்பிடப்படவில்லை" }}\n\n" + details.trim()
+                                    } else details.trim()
+                                    onSave(
+                                        RecordForm(
+                                            title = resolvedTitle,
+                                            details = savedDetails,
+                                            summary = summary.trim(),
+                                            date = date.trim(),
+                                            districtId = districtId.takeIf { it.isNotBlank() },
+                                            category = category,
+                                            priority = priority,
+                                            location = location.trim(),
+                                            designation = designation.trim(),
+                                            organization = organization.trim(),
+                                            phone = phone.trim(),
+                                            email = email.trim(),
+                                            notes = notes.trim()
+                                        )
+                                    )
+                                } catch (error: Exception) {
+                                    message = error.message ?: "சேமிக்க முடியவில்லை."
+                                } finally {
+                                    saving = false
+                                }
+                            }
                         }
+                    },
+                    enabled = !saving,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    if (saving) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    else Text(if (initialForm == null) "சேமிக்கவும்" else "மாற்றத்தைச் சேமிக்கவும்")
+                }
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(innerPadding).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (tab == 2) {
+                OutlinedTextField(value = title, onValueChange = { title = it }, modifier = Modifier.fillMaxWidth(), label = { Text("பெயர் *") }, singleLine = true)
+                OutlinedTextField(value = phone, onValueChange = { phone = it }, modifier = Modifier.fillMaxWidth(), label = { Text("தொலைபேசி எண்") }, singleLine = true)
+                OutlinedTextField(value = designation, onValueChange = { designation = it }, modifier = Modifier.fillMaxWidth(), label = { Text("பதவி") }, singleLine = true)
+                OutlinedTextField(value = organization, onValueChange = { organization = it }, modifier = Modifier.fillMaxWidth(), label = { Text("நிறுவனம் / அலுவலகம்") }, singleLine = true)
+                OutlinedTextField(value = email, onValueChange = { email = it }, modifier = Modifier.fillMaxWidth(), label = { Text("மின்னஞ்சல்") }, singleLine = true)
+                Text("மாவட்டம்", style = MaterialTheme.typography.labelMedium)
+                DistrictDropdown(districts, districtId, false, { districtId = it }, Modifier.fillMaxWidth())
+                OutlinedTextField(value = notes, onValueChange = { notes = it }, modifier = Modifier.fillMaxWidth(), label = { Text("குறிப்புகள் (விருப்பம்)") }, minLines = 2)
+            } else {
+                OutlinedTextField(
+                    value = details,
+                    onValueChange = { details = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(if (tab == 0) "செய்தி உள்ளடக்கம் * — முதல் பத்தி தலைப்பாகும்" else "நிகழ்வு விவரம் * — முதல் பத்தி தலைப்பாகும்") },
+                    minLines = 7
+                )
+                if (autoTitle.isNotBlank()) {
+                    Text("தானாக உருவாகும் தலைப்பு", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(autoTitle, style = MaterialTheme.typography.titleMedium)
+                }
+                if (tab == 0) {
+                    OutlinedTextField(value = summary, onValueChange = { summary = it }, modifier = Modifier.fillMaxWidth(), label = { Text("சுருக்கம் (விருப்பம்)") }, minLines = 2)
+                }
+                OutlinedTextField(value = date, onValueChange = { date = it }, modifier = Modifier.fillMaxWidth(), label = { Text(if (tab == 0) "செய்தி தேதி (YYYY-MM-DD)" else "நிகழ்வு தேதி (YYYY-MM-DD)") }, singleLine = true)
+                if (tab == 1) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(value = startTime, onValueChange = { startTime = it }, modifier = Modifier.weight(1f), label = { Text("தொடக்க நேரம்") }, placeholder = { Text("09:30") }, singleLine = true)
+                        OutlinedTextField(value = endTime, onValueChange = { endTime = it }, modifier = Modifier.weight(1f), label = { Text("முடிவு நேரம்") }, placeholder = { Text("11:00") }, singleLine = true)
                     }
                 }
-            },
-            enabled = !saving,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            if (saving) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-            else Text("Supabase-ல் சேமிக்கவும்")
+                Text("மாவட்டம்", style = MaterialTheme.typography.labelMedium)
+                DistrictDropdown(districts, districtId, false, { districtId = it }, Modifier.fillMaxWidth())
+                Text("துறை / வகை", style = MaterialTheme.typography.labelMedium)
+                ChoiceDropdown(category, categoryOptions, "வகை தேர்வு", { category = it }, Modifier.fillMaxWidth())
+                Text("முன்னுரிமை", style = MaterialTheme.typography.labelMedium)
+                ChoiceDropdown(priority, priorityOptions, "முன்னுரிமை", { priority = it }, Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    value = location,
+                    onValueChange = { location = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(if (category == "police") "காவல் நிலையம் / இடம் (விருப்பம்)" else "இடம் (விருப்பம்)") },
+                    singleLine = true
+                )
+            }
+            if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.error)
+            Spacer(Modifier.height(6.dp))
         }
     }
 }
+
