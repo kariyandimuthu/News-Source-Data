@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Base64
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -490,24 +491,23 @@ class SupabaseApi(context: Context) {
     }
 
     suspend fun uploadNewsPhoto(uri: Uri): String = withContext(Dispatchers.IO) {
-        val userId = requireUserId()
         val bytes = compressPhoto(uri)
         if (bytes.isEmpty()) throw IllegalStateException("படத்தைச் சுருக்க முடியவில்லை.")
-        val path = "$userId/${UUID.randomUUID()}.jpg"
-        storageRequest("/storage/v1/object/news-photos/" + encodeStoragePath(path), "POST", bytes, "image/jpeg")
-        path
+        if (bytes.size > 4 * 1024 * 1024) throw IllegalStateException("படத்தின் அளவு 4 MB-ஐ விட அதிகமாக உள்ளது.")
+        val payload = JSONObject()
+            .put("action", "upload")
+            .put("file_base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+        val response = executeMediaFunction(payload, binaryResponse = false)
+        JSONObject(String(response, Charsets.UTF_8)).optString("path").takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("சேமிக்கப்பட்ட படத்தின் பாதை கிடைக்கவில்லை.")
     }
 
     suspend fun getNewsPhotoBytes(path: String): ByteArray = withContext(Dispatchers.IO) {
-        storageRequest("/storage/v1/object/authenticated/news-photos/" + encodeStoragePath(path), "GET", null, null)
+        executeMediaFunction(JSONObject().put("action", "download").put("path", path), binaryResponse = true)
     }
 
     suspend fun deleteNewsPhoto(path: String) = withContext(Dispatchers.IO) {
-        val body = JSONObject().put("prefixes", JSONArray().put(path))
-        val response = executeHttp("/storage/v1/object/news-photos", "DELETE", body, currentAccessToken())
-        if (response.status !in 200..299) {
-            throw IllegalStateException(friendlyError(response.body, response.status))
-        }
+        executeMediaFunction(JSONObject().put("action", "delete").put("path", path), binaryResponse = false)
     }
 
     suspend fun downloadNewsPhoto(context: Context, path: String): String = withContext(Dispatchers.IO) {
@@ -567,46 +567,35 @@ class SupabaseApi(context: Context) {
     private fun currentAccessToken(): String =
         preferences.getString("access_token", null) ?: throw IllegalStateException("உள்நுழையவும்.")
 
-    private fun storageRequest(
-        path: String,
-        method: String,
-        body: ByteArray?,
-        contentType: String?,
-        allowRefresh: Boolean = true
-    ): ByteArray {
-        val token = currentAccessToken()
-        val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
-            requestMethod = method
+    private fun executeMediaFunction(payload: JSONObject, binaryResponse: Boolean, allowRefresh: Boolean = true): ByteArray {
+        val connection = (URL("$baseUrl/functions/v1/news-media").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
             connectTimeout = 20_000
-            readTimeout = 30_000
+            readTimeout = 35_000
             setRequestProperty("apikey", publishableKey)
-            setRequestProperty("Accept", "*/*")
-            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Accept", if (binaryResponse) "image/jpeg" else "application/json")
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Authorization", "Bearer ${currentAccessToken()}")
             setRequestProperty("x-app-device-id", preferences.getString("device_id", "").orEmpty())
             setRequestProperty("x-app-device-secret", preferences.getString("device_secret", "").orEmpty())
-            if (contentType != null) setRequestProperty("Content-Type", contentType)
-            if (method == "POST") setRequestProperty("x-upsert", "false")
-            if (body != null) doOutput = true
+            doOutput = true
         }
         return try {
-            if (body != null) connection.outputStream.use { it.write(body) }
+            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val responseBytes = stream?.use { it.readBytes() } ?: ByteArray(0)
+            val bytes = stream?.use { it.readBytes() } ?: ByteArray(0)
             if (code == 401 && allowRefresh && refreshSession()) {
-                return storageRequest(path, method, body, contentType, allowRefresh = false)
+                return executeMediaFunction(payload, binaryResponse, allowRefresh = false)
             }
             if (code !in 200..299) {
-                throw IllegalStateException(friendlyError(String(responseBytes, Charsets.UTF_8), code))
+                throw IllegalStateException(friendlyError(String(bytes, Charsets.UTF_8), code))
             }
-            responseBytes
+            bytes
         } finally {
             connection.disconnect()
         }
     }
-
-    private fun encodeStoragePath(path: String): String =
-        path.split("/").joinToString("/") { encode(it).replace("+", "%20") }
 
     private fun extractYouTubeVideoId(raw: String): String? {
         val uri = runCatching { java.net.URI(raw.trim()) }.getOrNull() ?: return null
