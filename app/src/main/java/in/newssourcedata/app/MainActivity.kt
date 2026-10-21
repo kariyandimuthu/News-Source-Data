@@ -150,7 +150,7 @@ private fun AppRoot(api: SupabaseApi) {
             }
         )
         else -> MainAppScreen(
-            isOwner = profile?.role == "owner",
+            isOwner = profile?.role == "owner" && api.getDeviceDisplayName().trim().equals("Muthu Rajan", ignoreCase = true),
             onSignOut = {
                 scope.launch {
                     api.signOut()
