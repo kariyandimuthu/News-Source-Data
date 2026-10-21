@@ -2,6 +2,14 @@ package `in`.newssourcedata.app
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.ContentValues
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import java.io.ByteArrayOutputStream
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -34,6 +42,16 @@ data class NewsRecord(
     val status: String,
     val priority: String,
     val location: String?,
+    val createdAt: String?,
+    val attachmentPaths: List<String> = emptyList()
+)
+
+data class StockVideoRecord(
+    val id: String,
+    val youtubeVideoId: String,
+    val youtubeUrl: String,
+    val title: String,
+    val thumbnailUrl: String,
     val createdAt: String?
 )
 
@@ -63,6 +81,7 @@ data class ContactRecord(
 )
 
 class SupabaseApi(context: Context) {
+    private val appContext: Context = context.applicationContext
     private val preferences: SharedPreferences =
         context.getSharedPreferences("news_source_supabase_session", Context.MODE_PRIVATE)
 
@@ -292,7 +311,7 @@ class SupabaseApi(context: Context) {
     suspend fun getNews(): List<NewsRecord> = withContext(Dispatchers.IO) {
         val rows = JSONArray(
             request(
-                "/rest/v1/news_items?select=id,headline,body,summary,news_date,district_id,category,status,priority,location_text,created_at&order=news_date.desc,created_at.desc",
+                "/rest/v1/news_items?select=id,headline,body,summary,news_date,district_id,category,status,priority,location_text,created_at,attachment_paths&order=news_date.desc,created_at.desc",
                 "GET",
                 null
             )
@@ -312,7 +331,14 @@ class SupabaseApi(context: Context) {
                         status = row.optString("status", "draft"),
                         priority = row.optString("priority", "normal"),
                         location = optionalString(row, "location_text"),
-                        createdAt = optionalString(row, "created_at")
+                        createdAt = optionalString(row, "created_at"),
+                        attachmentPaths = buildList {
+                            val paths = row.optJSONArray("attachment_paths") ?: JSONArray()
+                            for (pathIndex in 0 until paths.length()) {
+                                val value = paths.optString(pathIndex).trim()
+                                if (value.isNotBlank()) add(value)
+                            }
+                        }
                     )
                 )
             }
@@ -384,7 +410,8 @@ class SupabaseApi(context: Context) {
         districtId: String?,
         category: String,
         priority: String,
-        location: String
+        location: String,
+        attachmentPaths: List<String> = emptyList()
     ) = withContext(Dispatchers.IO) {
         val payload = JSONObject()
             .put("owner_id", requireUserId())
@@ -397,7 +424,193 @@ class SupabaseApi(context: Context) {
             .put("status", "draft")
             .put("priority", priority)
             .put("location_text", nullableValue(location))
+            .put("attachment_paths", JSONArray(attachmentPaths))
         request("/rest/v1/news_items", "POST", payload)
+    }
+
+    suspend fun getStockVideos(): List<StockVideoRecord> = withContext(Dispatchers.IO) {
+        val rows = JSONArray(
+            request(
+                "/rest/v1/stock_videos?select=id,youtube_video_id,youtube_url,title,thumbnail_url,created_at&order=created_at.desc",
+                "GET",
+                null
+            )
+        )
+        buildList {
+            for (index in 0 until rows.length()) {
+                val row = rows.getJSONObject(index)
+                add(
+                    StockVideoRecord(
+                        id = row.optString("id"),
+                        youtubeVideoId = row.optString("youtube_video_id"),
+                        youtubeUrl = row.optString("youtube_url"),
+                        title = row.optString("title"),
+                        thumbnailUrl = row.optString("thumbnail_url"),
+                        createdAt = optionalString(row, "created_at")
+                    )
+                )
+            }
+        }
+    }
+
+    suspend fun saveStockVideo(rawUrl: String) = withContext(Dispatchers.IO) {
+        val videoId = extractYouTubeVideoId(rawUrl)
+            ?: throw IllegalStateException("சரியான YouTube வீடியோ இணைப்பை உள்ளிடவும்.")
+        val canonicalUrl = "https://www.youtube.com/watch?v=$videoId"
+        val connection = (URL("https://www.youtube.com/oembed?url=" + encode(canonicalUrl) + "&format=json")
+            .openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 12_000
+            readTimeout = 15_000
+        }
+        val metadata = try {
+            val code = connection.responseCode
+            if (code !in 200..299) throw IllegalStateException("இந்த YouTube வீடியோ விவரங்களைப் பெற முடியவில்லை.")
+            connection.inputStream.bufferedReader(Charsets.UTF_8).use { JSONObject(it.readText()) }
+        } finally {
+            connection.disconnect()
+        }
+        val title = optionalString(metadata, "title")?.trim().orEmpty()
+        if (title.isBlank()) throw IllegalStateException("YouTube தலைப்பைப் பெற முடியவில்லை.")
+        request(
+            "/rest/v1/stock_videos",
+            "POST",
+            JSONObject()
+                .put("owner_id", requireUserId())
+                .put("youtube_video_id", videoId)
+                .put("youtube_url", canonicalUrl)
+                .put("title", title)
+                .put("thumbnail_url", "https://i.ytimg.com/vi/$videoId/hqdefault.jpg")
+        )
+    }
+
+    suspend fun deleteStockVideo(id: String) = withContext(Dispatchers.IO) {
+        request("/rest/v1/stock_videos?id=eq." + encode(id), "DELETE", null)
+    }
+
+    suspend fun uploadNewsPhoto(uri: Uri): String = withContext(Dispatchers.IO) {
+        val userId = requireUserId()
+        val bytes = compressPhoto(uri)
+        if (bytes.isEmpty()) throw IllegalStateException("படத்தைச் சுருக்க முடியவில்லை.")
+        val path = "$userId/${UUID.randomUUID()}.jpg"
+        storageRequest("/storage/v1/object/news-photos/" + encodeStoragePath(path), "POST", bytes, "image/jpeg")
+        path
+    }
+
+    suspend fun getNewsPhotoBytes(path: String): ByteArray = withContext(Dispatchers.IO) {
+        storageRequest("/storage/v1/object/authenticated/news-photos/" + encodeStoragePath(path), "GET", null, null)
+    }
+
+    suspend fun deleteNewsPhoto(path: String) = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("prefixes", JSONArray().put(path))
+        val response = executeHttp("/storage/v1/object/news-photos", "DELETE", body, currentAccessToken())
+        if (response.status !in 200..299) {
+            throw IllegalStateException(friendlyError(response.body, response.status))
+        }
+    }
+
+    suspend fun downloadNewsPhoto(context: Context, path: String): String = withContext(Dispatchers.IO) {
+        val bytes = getNewsPhotoBytes(path)
+        if (bytes.isEmpty()) throw IllegalStateException("புகைப்படம் காலியாக உள்ளது.")
+        val filename = "NewsSource-${System.currentTimeMillis()}.jpg"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/NewsSourceData")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val destination = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("Download கோப்பை உருவாக்க முடியவில்லை.")
+            try {
+                context.contentResolver.openOutputStream(destination)?.use { it.write(bytes) }
+                    ?: throw IllegalStateException("Download கோப்பில் எழுத முடியவில்லை.")
+                values.clear()
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                context.contentResolver.update(destination, values, null, null)
+            } catch (error: Exception) {
+                context.contentResolver.delete(destination, null, null)
+                throw error
+            }
+        } else {
+            val directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!directory.exists() && !directory.mkdirs()) throw IllegalStateException("Download கோப்புறையை உருவாக்க முடியவில்லை.")
+            File(directory, filename).writeBytes(bytes)
+        }
+        filename
+    }
+
+    private fun compressPhoto(uri: Uri): ByteArray {
+        val raw = appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: throw IllegalStateException("படத்தைத் திறக்க முடியவில்லை.")
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw IllegalStateException("தேர்ந்தெடுத்த கோப்பு செல்லுபடியான படம் அல்ல.")
+        var sample = 1
+        while (maxOf(bounds.outWidth / sample, bounds.outHeight / sample) > 1600) sample *= 2
+        val bitmap = BitmapFactory.decodeByteArray(
+            raw, 0, raw.size, BitmapFactory.Options().apply { inSampleSize = sample }
+        ) ?: throw IllegalStateException("படத்தை வாசிக்க முடியவில்லை.")
+        return try {
+            ByteArrayOutputStream().use { output ->
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 72, output)) {
+                    throw IllegalStateException("படத்தை JPEG வடிவில் சுருக்க முடியவில்லை.")
+                }
+                output.toByteArray()
+            }
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun currentAccessToken(): String =
+        preferences.getString("access_token", null) ?: throw IllegalStateException("உள்நுழையவும்.")
+
+    private fun storageRequest(path: String, method: String, body: ByteArray?, contentType: String?): ByteArray {
+        val token = currentAccessToken()
+        val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
+            requestMethod = method
+            connectTimeout = 20_000
+            readTimeout = 30_000
+            setRequestProperty("apikey", publishableKey)
+            setRequestProperty("Accept", "*/*")
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("x-app-device-id", preferences.getString("device_id", "").orEmpty())
+            setRequestProperty("x-app-device-secret", preferences.getString("device_secret", "").orEmpty())
+            if (contentType != null) setRequestProperty("Content-Type", contentType)
+            if (method == "POST") setRequestProperty("x-upsert", "false")
+            if (body != null) doOutput = true
+        }
+        return try {
+            if (body != null) connection.outputStream.use { it.write(body) }
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val responseBytes = stream?.use { it.readBytes() } ?: ByteArray(0)
+            if (code !in 200..299) {
+                throw IllegalStateException(friendlyError(String(responseBytes, Charsets.UTF_8), code))
+            }
+            responseBytes
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun encodeStoragePath(path: String): String =
+        path.split("/").joinToString("/") { encode(it).replace("+", "%20") }
+
+    private fun extractYouTubeVideoId(raw: String): String? {
+        val uri = runCatching { java.net.URI(raw.trim()) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase(Locale.ROOT)?.removePrefix("www.") ?: return null
+        if (host !in setOf("youtube.com", "m.youtube.com", "youtu.be", "youtube-nocookie.com")) return null
+        val candidate = when {
+            host == "youtu.be" -> uri.path.trim('/').substringBefore("/")
+            uri.path == "/watch" -> uri.rawQuery.orEmpty().split("&")
+                .firstOrNull { it.startsWith("v=") }?.substringAfter("v=")
+            uri.path.startsWith("/shorts/") -> uri.path.removePrefix("/shorts/").substringBefore("/")
+            uri.path.startsWith("/embed/") -> uri.path.removePrefix("/embed/").substringBefore("/")
+            else -> null
+        }
+        return candidate?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
     }
 
     suspend fun addAssignment(
@@ -446,7 +659,8 @@ class SupabaseApi(context: Context) {
 
     suspend fun updateNews(
         id: String, headline: String, body: String, summary: String, newsDate: String,
-        districtId: String?, category: String, priority: String, location: String
+        districtId: String?, category: String, priority: String, location: String,
+        attachmentPaths: List<String> = emptyList()
     ) = withContext(Dispatchers.IO) {
         val payload = JSONObject()
             .put("headline", headline.trim())
@@ -457,6 +671,7 @@ class SupabaseApi(context: Context) {
             .put("category", category)
             .put("priority", priority)
             .put("location_text", nullableValue(location))
+            .put("attachment_paths", JSONArray(attachmentPaths))
         request("/rest/v1/news_items?id=eq." + encode(id), "PATCH", payload)
     }
 
