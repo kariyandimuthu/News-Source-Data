@@ -259,6 +259,7 @@ private fun MainAppScreen(
     var addMenuExpanded by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var previewNews by remember { mutableStateOf<NewsRecord?>(null) }
+    var previewAssignment by remember { mutableStateOf<AssignmentRecord?>(null) }
     var refreshVersion by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(true) }
     var statusMessage by remember { mutableStateOf("") }
@@ -317,6 +318,30 @@ private fun MainAppScreen(
                 TextButton(onClick = { pendingDelete = null }) { Text("ரத்து") }
             }
         )
+    }
+
+    previewAssignment?.let { item ->
+        Dialog(
+            onDismissRequest = { previewAssignment = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Column(modifier = Modifier.fillMaxSize().padding(18.dp)) {
+                    Text("அசைன்மென்ட் முன்னோட்டம்", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(12.dp))
+                    Text(item.title, style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(8.dp))
+                    val meta = listOf(item.eventDate, districtNames[item.districtId].orEmpty(), item.location.orEmpty())
+                        .filter { it.isNotBlank() && it != "மாவட்டம் குறிப்பிடப்படவில்லை" }.joinToString(" · ")
+                    if (meta.isNotBlank()) Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(16.dp))
+                    Column(modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                        if (item.description.isNotBlank()) Text(item.description, style = MaterialTheme.typography.bodyLarge)
+                    }
+                    Button(onClick = { previewAssignment = null }, modifier = Modifier.fillMaxWidth()) { Text("மூடு") }
+                }
+            }
+        }
     }
 
     previewNews?.let { item ->
@@ -415,7 +440,10 @@ private fun MainAppScreen(
             }
         },
         floatingActionButton = {
-            Column(horizontalAlignment = Alignment.End) {
+            Box {
+                FloatingActionButton(onClick = { addMenuExpanded = true }) {
+                    Text("+", style = MaterialTheme.typography.headlineSmall)
+                }
                 DropdownMenu(expanded = addMenuExpanded, onDismissRequest = { addMenuExpanded = false }) {
                     DropdownMenuItem(text = { Text("📰  செய்தி சேர்க்க") }, onClick = {
                         addMenuExpanded = false; activeEditId = null; activeFormInitial = null; activeFormTab = 0
@@ -426,9 +454,6 @@ private fun MainAppScreen(
                     DropdownMenuItem(text = { Text("☎  தொடர்பு சேர்க்க") }, onClick = {
                         addMenuExpanded = false; activeEditId = null; activeFormInitial = null; activeFormTab = 2
                     })
-                }
-                FloatingActionButton(onClick = { addMenuExpanded = true }) {
-                    Text("+", style = MaterialTheme.typography.headlineSmall)
                 }
             }
         }
@@ -520,6 +545,7 @@ private fun MainAppScreen(
                                 AssignmentCard(
                                     item = item,
                                     districtName = districtName,
+                                    onPreview = { previewAssignment = item },
                                     onEdit = {
                                         activeEditId = item.id
                                         activeFormInitial = RecordForm(item.title, item.description, date = item.eventDate, districtId = item.districtId, category = item.category, priority = item.priority, location = item.location.orEmpty())
@@ -641,6 +667,7 @@ private fun NewsCard(
 private fun AssignmentCard(
     item: AssignmentRecord,
     districtName: String,
+    onPreview: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -664,7 +691,8 @@ private fun AssignmentCard(
                     if (locationLine.isNotBlank()) Text("⌖  $locationLine", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = onPreview, modifier = Modifier.weight(1f)) { Text("முன்னோட்டம்") }
                 OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("திருத்து") }
                 TextButton(onClick = onDelete) { Text("நீக்கு", color = MaterialTheme.colorScheme.error) }
             }
@@ -843,7 +871,7 @@ private fun RecordFormScreen(
                                 message = ""
                                 try {
                                     val savedDetails = if (tab == 1 && (startTime.isNotBlank() || endTime.isNotBlank())) {
-                                        "நிகழ்வு நேரம்: ${startTime.ifBlank { "குறிப்பிடப்படவில்லை" }} - ${endTime.ifBlank { "குறிப்பிடப்படவில்லை" }}\n\n" + details.trim()
+                                        details.trim() + "\n\nநிகழ்வு நேரம்: ${startTime.ifBlank { "குறிப்பிடப்படவில்லை" }} - ${endTime.ifBlank { "குறிப்பிடப்படவில்லை" }}"
                                     } else details.trim()
                                     onSave(
                                         RecordForm(
