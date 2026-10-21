@@ -272,6 +272,7 @@ private val categoryOptions = listOf(
     "விபத்து" to "accident",
     "நீதிமன்றம்" to "court",
     "தொல்லியல்" to "archaeology",
+    "பின்தொடர்வு" to "follow_up",
     "மக்கள் பிரச்சினை" to "public_issue"
 )
 
