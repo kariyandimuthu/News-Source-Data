@@ -28,8 +28,14 @@ android {
         applicationId = "in.newssourcedata.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0"
+        versionCode = 3
+        versionName = "2.1"
+
+        // Keep the sideload APK small for the user's 64-bit ARM Android phone.
+        // Native OCR and translation libraries are packaged for this ABI only.
+        ndk {
+            abiFilters += setOf("arm64-v8a")
+        }
 
         buildConfigField("String", "SUPABASE_URL", "\"" + supabaseUrl + "\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"" + supabasePublishableKey + "\"")
