@@ -28,8 +28,8 @@ android {
         applicationId = "in.newssourcedata.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "2.1"
+        versionCode = 4
+        versionName = "2.2"
 
         // Keep the sideload APK small for the user's 64-bit ARM Android phone.
         // Native OCR and translation libraries are packaged for this ABI only.
