@@ -496,6 +496,8 @@ private fun MainAppScreen(
     hasOwnerSettings: Boolean,
     onSignOut: () -> Unit
 ) {
+    // Re-read the persisted device role after setting the Owner password.
+    val effectiveIsOwner = isOwner || api.getRegisteredDeviceStatus() == "owner"
     var selectedTab by remember { mutableIntStateOf(0) }
     var showStockVideos by remember { mutableStateOf(false) }
     var showInfo by remember { mutableStateOf(false) }
@@ -934,7 +936,7 @@ private fun MainAppScreen(
                         addMenuExpanded = false
                         showAiAssistant = true
                     })
-                    if (isOwner || hasOwnerSettings) {
+                    if (effectiveIsOwner || hasOwnerSettings) {
                         DropdownMenuItem(text = { Text("📱  புதிய சாதனங்களுக்கு ஒப்புதல்") }, onClick = {
                             addMenuExpanded = false
                             showDeviceApprovalDialog = true
@@ -944,7 +946,7 @@ private fun MainAppScreen(
                             showOwnerPasswordDialog = true
                         })
                     }
-                    if (isOwner) {
+                    if (effectiveIsOwner) {
                         DropdownMenuItem(text = { Text("🔐  பகிரப்பட்ட கடவுச்சொல் மாற்றம் / எல்லா சாதனங்களிலிருந்தும் வெளியேறு") }, onClick = {
                             addMenuExpanded = false
                             showPasswordDialog = true
@@ -1534,7 +1536,11 @@ private fun RecordFormScreen(
     var summary by remember(tab, initialForm) { mutableStateOf(initialForm?.summary ?: "") }
     var date by remember(tab, initialForm) { mutableStateOf(initialForm?.date?.takeIf { it.isNotBlank() } ?: LocalDate.now().toString()) }
     var districtId by remember(tab, initialForm) { mutableStateOf(initialForm?.districtId.orEmpty()) }
-    var category by remember(tab, initialForm) { mutableStateOf(initialForm?.category ?: "general") }
+    var category by remember(tab, initialForm) {
+        mutableStateOf(
+            initialForm?.category?.let { if (isDuplicatePoliceAccidentCategory(it)) "accident" else it } ?: "general"
+        )
+    }
     var priority by remember(tab, initialForm) { mutableStateOf(initialForm?.priority ?: "normal") }
     var followUpTag by remember(tab, initialForm) { mutableStateOf(initialForm?.followUp ?: false) }
     var location by remember(tab, initialForm) { mutableStateOf(initialForm?.location ?: "") }
@@ -1547,7 +1553,8 @@ private fun RecordFormScreen(
     var endTime by remember(tab, initialForm) { mutableStateOf(initialForm?.details?.let(::readSavedEndTime).orEmpty()) }
     var customCategories by remember(tab, initialForm, knownCategories) {
         mutableStateOf(
-            if (initialForm?.category.isNullOrBlank() || categoryOptions.any { it.second == initialForm?.category } ||
+            if (initialForm?.category.isNullOrBlank() || isDuplicatePoliceAccidentCategory(initialForm?.category.orEmpty()) ||
+                categoryOptions.any { it.second == initialForm?.category } ||
                 knownCategories.any { it.second == initialForm?.category }) emptyList()
             else listOf(initialForm?.category.orEmpty() to initialForm?.category.orEmpty())
         )
@@ -1577,7 +1584,9 @@ private fun RecordFormScreen(
                 summary = draft.optString("summary", summary)
                 date = draft.optString("date", date)
                 districtId = draft.optString("districtId", districtId)
-                category = draft.optString("category", category)
+                category = draft.optString("category", category).let {
+                    if (isDuplicatePoliceAccidentCategory(it)) "accident" else it
+                }
                 priority = draft.optString("priority", priority)
                 followUpTag = draft.optBoolean("followUpTag", followUpTag)
                 location = draft.optString("location", location)
@@ -1593,7 +1602,7 @@ private fun RecordFormScreen(
                     customCategories = buildList {
                         for (index in 0 until values.length()) {
                             val value = values.optString(index).trim()
-                            if (value.isNotBlank()) add(value to value)
+                            if (value.isNotBlank() && !isDuplicatePoliceAccidentCategory(value)) add(value to value)
                         }
                     }
                 }
