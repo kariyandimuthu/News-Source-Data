@@ -31,8 +31,25 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      # Keep the same debug signing certificate across main-branch builds.
-      # Otherwise Android requires uninstalling the previous APK, which erases local login sessions.
+      # Create the keystore before the cache step so a cache miss can still be saved after a trusted main build.
+      # This first generated key only becomes the long-term key when a trusted main-branch run caches it.
+      - name: Ensure Android debug signing key exists
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storetype JKS \
+              -storepass android \
+              -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      # Once a trusted main run seeds this cache, future APKs use the same signing certificate.
       - name: Restore stable debug signing key
         uses: actions/cache@v4
         with:
