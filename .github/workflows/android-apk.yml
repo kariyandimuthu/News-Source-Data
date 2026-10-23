@@ -59,7 +59,9 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 
+      # Only publish downloads built from main, because cache keys are branch-scoped.
       - name: Upload APK
+        if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
         uses: actions/upload-artifact@v4
         with:
           name: News-Source-Data-debug-apk
