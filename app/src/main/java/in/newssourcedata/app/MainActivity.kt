@@ -110,6 +110,7 @@ class MainActivity : ComponentActivity() {
 private fun AppRoot(api: SupabaseApi) {
     var page by remember { mutableStateOf(if (api.hasSession()) "checking" else "login") }
     var profile by remember { mutableStateOf<AppProfile?>(null) }
+    var hasOwnerSettings by remember { mutableStateOf(false) }
     var loginError by remember { mutableStateOf("") }
     var pendingMessage by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -126,6 +127,8 @@ private fun AppRoot(api: SupabaseApi) {
                     val deviceStatus = api.registerDevice(deviceName)
                     if (deviceStatus == "owner" || deviceStatus == "approved") {
                         profile = api.getProfile()
+                        hasOwnerSettings = profile?.role == "owner" &&
+                            (api.getRegisteredDeviceStatus() == "owner" || api.hasOwnerSettingsAccess())
                         if (profile?.approvalStatus == "approved") {
                             page = "main"
                         } else {
@@ -161,6 +164,8 @@ private fun AppRoot(api: SupabaseApi) {
                         val deviceStatus = api.registerDevice(displayName)
                         if (deviceStatus == "owner" || deviceStatus == "approved") {
                             profile = api.getProfile()
+                            hasOwnerSettings = profile?.role == "owner" &&
+                                (api.getRegisteredDeviceStatus() == "owner" || api.hasOwnerSettingsAccess())
                             if (profile?.approvalStatus == "approved") {
                                 page = "main"
                             } else {
@@ -191,6 +196,8 @@ private fun AppRoot(api: SupabaseApi) {
                         val deviceStatus = api.registerDevice(deviceName)
                         if (deviceStatus == "owner" || deviceStatus == "approved") {
                             profile = api.getProfile()
+                            hasOwnerSettings = profile?.role == "owner" &&
+                                (api.getRegisteredDeviceStatus() == "owner" || api.hasOwnerSettingsAccess())
                             if (profile?.approvalStatus == "approved") {
                                 page = "main"
                             } else {
@@ -217,6 +224,7 @@ private fun AppRoot(api: SupabaseApi) {
         )
         else -> MainAppScreen(
             isOwner = profile?.role == "owner" && api.getRegisteredDeviceStatus() == "owner",
+            hasOwnerSettings = hasOwnerSettings,
             onSignOut = {
                 scope.launch {
                     api.signOut()
@@ -393,6 +401,7 @@ private val dateFilterOptions = listOf(
 private fun MainAppScreen(
     api: SupabaseApi,
     isOwner: Boolean,
+    hasOwnerSettings: Boolean,
     onSignOut: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -820,7 +829,7 @@ private fun MainAppScreen(
                         addMenuExpanded = false
                         showAiAssistant = true
                     })
-                    if (isOwner) {
+                    if (isOwner || hasOwnerSettings) {
                         DropdownMenuItem(text = { Text("📱  புதிய சாதனங்களுக்கு ஒப்புதல்") }, onClick = {
                             addMenuExpanded = false
                             showDeviceApprovalDialog = true
@@ -2520,9 +2529,13 @@ private fun DeviceApprovalDialog(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(device.displayName, style = MaterialTheme.typography.titleSmall)
+                            val ownerSettingsRequest = device.displayName.trim().equals("Muthu Rajan", ignoreCase = true)
                             Text(
-                                if (device.status == "rejected") "முன்பு மறுக்கப்பட்டது — மீண்டும் அனுமதிக்கலாம்"
-                                else "புதிய சாதன அனுமதி கோரிக்கை",
+                                when {
+                                    ownerSettingsRequest -> "Owner அமைப்புகளுக்கான கோரிக்கை — முதன்மைச் சாதனத்தில் அனுமதித்தால் இந்தச் சாதனத்திலும் Owner அமைப்புகள் திறக்கும்."
+                                    device.status == "rejected" -> "முன்பு மறுக்கப்பட்டது — மீண்டும் அனுமதிக்கலாம்"
+                                    else -> "புதிய சாதன அனுமதி கோரிக்கை"
+                                },
                                 style = MaterialTheme.typography.bodySmall
                             )
                             if (device.createdAt.isNotBlank()) {
@@ -2533,7 +2546,7 @@ private fun DeviceApprovalDialog(
                                     onClick = { decide(device.deviceId, true) },
                                     enabled = !loading,
                                     modifier = Modifier.weight(1f)
-                                ) { Text("அனுமதி") }
+                                ) { Text(if (device.displayName.trim().equals("Muthu Rajan", ignoreCase = true)) "Owner அமைப்புடன் அனுமதி" else "அனுமதி") }
                                 OutlinedButton(
                                     onClick = { decide(device.deviceId, false) },
                                     enabled = !loading,
