@@ -1080,9 +1080,10 @@ class SupabaseApi(context: Context) {
         }
         val response = executeHttp(path, method, body, token)
         if (response.status == 401 && authenticated && allowRefresh) {
+            val tokenUsed = token
             val refreshed = synchronized(sessionRefreshLock) {
-                val currentToken = preferences.getString("access_token", null)
-                if (!accessTokenExpiresSoon(currentToken)) true else refreshSession()
+                val latestToken = preferences.getString("access_token", null)
+                if (!latestToken.isNullOrBlank() && latestToken != tokenUsed) true else refreshSession()
             }
             if (refreshed) return request(path, method, body, authenticated, false)
             // A temporary network failure must not force reporters to log in again.
