@@ -84,7 +84,8 @@ data class ContactRecord(
     val email: String,
     val districtId: String?,
     val notes: String,
-    val createdAt: String?
+    val createdAt: String?,
+    val division: String = ""
 )
 
 data class InfoEntryRecord(
@@ -509,7 +510,7 @@ class SupabaseApi(context: Context) {
     suspend fun getContacts(): List<ContactRecord> = withContext(Dispatchers.IO) {
         val rows = JSONArray(
             request(
-                "/rest/v1/contacts?select=id,full_name,designation,organization,phone,email,district_id,notes,created_at&order=full_name.asc",
+                "/rest/v1/contacts?select=id,full_name,designation,organization,phone,email,district_id,notes,created_at,division&order=full_name.asc",
                 "GET",
                 null
             )
@@ -520,14 +521,15 @@ class SupabaseApi(context: Context) {
                 add(
                     ContactRecord(
                         id = row.optString("id"),
-                        fullName = row.optString("full_name"),
-                        designation = row.optString("designation", ""),
-                        organization = row.optString("organization", ""),
-                        phone = row.optString("phone", ""),
-                        email = row.optString("email", ""),
+                        fullName = row.optString("full_name", "").takeUnless { it.equals("null", ignoreCase = true) }.orEmpty(),
+                        designation = row.optString("designation", "").takeUnless { it.equals("null", ignoreCase = true) }.orEmpty(),
+                        organization = row.optString("organization", "").takeUnless { it.equals("null", ignoreCase = true) }.orEmpty(),
+                        phone = row.optString("phone", "").takeUnless { it.equals("null", ignoreCase = true) }.orEmpty(),
+                        email = row.optString("email", "").takeUnless { it.equals("null", ignoreCase = true) }.orEmpty(),
                         districtId = optionalString(row, "district_id"),
-                        notes = row.optString("notes", ""),
-                        createdAt = optionalString(row, "created_at")
+                        notes = row.optString("notes", "").takeUnless { it.equals("null", ignoreCase = true) }.orEmpty(),
+                        createdAt = optionalString(row, "created_at"),
+                        division = row.optString("division", "").takeUnless { it.equals("null", ignoreCase = true) }.orEmpty()
                     )
                 )
             }
@@ -1013,21 +1015,21 @@ class SupabaseApi(context: Context) {
     suspend fun addContact(
         fullName: String,
         designation: String,
-        organization: String,
         phone: String,
         email: String,
         districtId: String?,
-        notes: String
+        notes: String,
+        division: String
     ) = withContext(Dispatchers.IO) {
         val payload = JSONObject()
             .put("owner_id", requireUserId())
             .put("full_name", fullName.trim())
             .put("designation", nullableValue(designation))
-            .put("organization", nullableValue(organization))
             .put("phone", nullableValue(phone))
             .put("email", nullableValue(email))
             .put("district_id", nullableValue(districtId))
             .put("notes", nullableValue(notes))
+            .put("division", nullableValue(division))
         request("/rest/v1/contacts", "POST", payload)
     }
 
@@ -1068,17 +1070,18 @@ class SupabaseApi(context: Context) {
     }
 
     suspend fun updateContact(
-        id: String, fullName: String, designation: String, organization: String,
-        phone: String, email: String, districtId: String?, notes: String
+        id: String, fullName: String, designation: String,
+        phone: String, email: String, districtId: String?, notes: String, division: String
     ) = withContext(Dispatchers.IO) {
         val payload = JSONObject()
             .put("full_name", fullName.trim())
             .put("designation", nullableValue(designation))
-            .put("organization", nullableValue(organization))
+            // Existing organization values are retained in storage by omitting this column from PATCH.
             .put("phone", nullableValue(phone))
             .put("email", nullableValue(email))
             .put("district_id", nullableValue(districtId))
             .put("notes", nullableValue(notes))
+            .put("division", nullableValue(division))
         request("/rest/v1/contacts?id=eq." + encode(id), "PATCH", payload)
     }
 
