@@ -12,6 +12,8 @@ import com.googlecode.tesseract.android.TessBaseAPI
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Delete
@@ -70,6 +72,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import org.json.JSONArray
+import org.json.JSONObject
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
@@ -350,7 +355,8 @@ private data class RecordForm(
     val email: String = "",
     val notes: String = "",
     val attachmentPaths: List<String> = emptyList(),
-    val photoUri: Uri? = null
+    val photoUri: Uri? = null,
+    val followUp: Boolean = false
 )
 
 private val categoryOptions = listOf(
@@ -390,6 +396,8 @@ private fun MainAppScreen(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var showStockVideos by remember { mutableStateOf(false) }
+    var showInfo by remember { mutableStateOf(false) }
+    val categoryDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     var activeFormTab by remember { mutableStateOf<Int?>(null) }
     var activeEditId by remember { mutableStateOf<String?>(null) }
     var activeFormInitial by remember { mutableStateOf<RecordForm?>(null) }
@@ -474,6 +482,10 @@ private fun MainAppScreen(
 
     if (showStockVideos) {
         StockVideosScreen(api = api, onBack = { showStockVideos = false; refreshVersion += 1 })
+        return
+    }
+    if (showInfo) {
+        InfoScreen(api = api, onBack = { showInfo = false; refreshVersion += 1 })
         return
     }
 
@@ -611,6 +623,7 @@ private fun MainAppScreen(
             tab = activeFormTab ?: selectedTab,
             districts = districts,
             initialForm = activeFormInitial,
+            draftKey = "draft_${activeFormTab ?: selectedTab}_${activeEditId ?: "new"}",
             knownCategories = (news.map { it.category } + assignments.map { it.category })
                 .filter { value -> value.isNotBlank() && categoryOptions.none { it.second == value } }
                 .distinct()
@@ -632,9 +645,9 @@ private fun MainAppScreen(
                     val attachmentPaths = (form.attachmentPaths + listOfNotNull(uploadedPhotoPath)).distinct()
                     when (targetTab) {
                         0 -> if (editId == null) {
-                            api.addNews(form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location, attachmentPaths)
+                            api.addNews(form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location, attachmentPaths, if (form.followUp) listOf("follow_up") else emptyList())
                         } else {
-                            api.updateNews(editId, form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location, attachmentPaths)
+                            api.updateNews(editId, form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location, attachmentPaths, if (form.followUp) listOf("follow_up") else emptyList())
                         }
                         1 -> if (editId == null) {
                             api.addAssignment(form.title, form.details, form.date, form.districtId, form.category, form.priority, form.location)
@@ -690,6 +703,47 @@ private fun MainAppScreen(
         )
     }
 
+    ModalNavigationDrawer(
+        drawerState = categoryDrawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Column(
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("செய்தி வகைகள்", modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    HorizontalDivider()
+                    NavigationDrawerItem(
+                        label = { Text("அனைத்து பதிவுகள்") },
+                        selected = categoryFilter.isBlank(),
+                        onClick = {
+                            selectedTab = 0
+                            categoryFilter = ""
+                            searchText = ""
+                            districtFilter = ""
+                            scope.launch { categoryDrawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 10.dp)
+                    )
+                    categoryFilterOptions.filter { it.second.isNotBlank() }.forEach { option ->
+                        NavigationDrawerItem(
+                            label = { Text(option.first, maxLines = 1) },
+                            selected = categoryFilter == option.second,
+                            onClick = {
+                                selectedTab = 0
+                                categoryFilter = option.second
+                                searchText = ""
+                                districtFilter = ""
+                                scope.launch { categoryDrawerState.close() }
+                            },
+                            modifier = Modifier.padding(horizontal = 10.dp)
+                        )
+                    }
+                }
+            }
+        }
+    ) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -697,6 +751,11 @@ private fun MainAppScreen(
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         NewsSourceWordmark(compact = true)
                         Text(listOf("செய்திகள்", "அசைன்மென்ட்", "தொடர்புகள்")[selectedTab], style = MaterialTheme.typography.titleSmall)
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = { scope.launch { categoryDrawerState.open() } }) {
+                        Icon(Icons.Default.Menu, contentDescription = "செய்தி வகைகள்")
                     }
                 },
                 actions = {
@@ -728,6 +787,12 @@ private fun MainAppScreen(
                     onClick = { selectedTab = 2; districtFilter = ""; searchText = ""; categoryFilter = "" },
                     icon = { Text("👥", fontSize = 16.sp) },
                     label = { Text("தொடர்புகள்", style = MaterialTheme.typography.labelSmall) }
+                )
+                NavigationBarItem(
+                    selected = showInfo,
+                    onClick = { showInfo = true },
+                    icon = { Text("ℹ️", fontSize = 16.sp) },
+                    label = { Text("Info", style = MaterialTheme.typography.labelSmall) }
                 )
             }
         },
@@ -860,7 +925,10 @@ private fun MainAppScreen(
                                 item.body.contains(searchText, true) || item.summary.contains(searchText, true) ||
                                 item.category.contains(searchText, true)
                             val districtMatches = districtFilter.isBlank() || item.districtId == districtFilter
-                            val categoryMatches = categoryFilter.isBlank() || item.category == categoryFilter
+                            val categoryMatches = categoryFilter.isBlank() || when (categoryFilter) {
+                                "follow_up" -> item.category == "follow_up" || item.priority == "follow_up" || item.tags.contains("follow_up")
+                                else -> item.category == categoryFilter
+                            }
                             textMatches && districtMatches && categoryMatches && dateMatches(item.newsDate, dateFilter)
                         }
                         if (filtered.isEmpty()) {
@@ -882,7 +950,7 @@ private fun MainAppScreen(
                                             onPreview = { previewNews = item },
                                             onEdit = {
                                                 activeEditId = item.id
-                                                activeFormInitial = RecordForm(item.headline, item.body, item.summary, item.newsDate, item.districtId, item.category, item.priority, item.location.orEmpty(), attachmentPaths = item.attachmentPaths)
+                                                activeFormInitial = RecordForm(item.headline, item.body, item.summary, item.newsDate, item.districtId, item.category, item.priority, item.location.orEmpty(), attachmentPaths = item.attachmentPaths, followUp = item.tags.contains("follow_up") || item.priority == "follow_up")
                                                 activeFormTab = 0
                                             },
                                             onDelete = { pendingDelete = 0 to item.id },
@@ -899,7 +967,10 @@ private fun MainAppScreen(
                             val textMatches = searchText.isBlank() || item.title.contains(searchText, true) ||
                                 item.description.contains(searchText, true) || item.category.contains(searchText, true)
                             val districtMatches = districtFilter.isBlank() || item.districtId == districtFilter
-                            val categoryMatches = categoryFilter.isBlank() || item.category == categoryFilter
+                            val categoryMatches = categoryFilter.isBlank() || when (categoryFilter) {
+                                "follow_up" -> item.category == "follow_up" || item.priority == "follow_up"
+                                else -> item.category == categoryFilter
+                            }
                             textMatches && districtMatches && categoryMatches && dateMatches(item.eventDate, dateFilter)
                         }
                         if (filtered.isEmpty()) EmptyListMessage("அசைன்மென்ட் இல்லை. + பொத்தானை அழுத்திச் சேர்க்கவும்.")
@@ -962,6 +1033,7 @@ private fun MainAppScreen(
                     }
                 }
             }
+        }
         }
     }
 }
@@ -1325,11 +1397,15 @@ private fun ChoiceDropdown(
 private fun RecordFormScreen(
     tab: Int,
     districts: List<District>,
+    draftKey: String,
     initialForm: RecordForm? = null,
     knownCategories: List<Pair<String, String>> = emptyList(),
     onBack: () -> Unit,
     onSave: suspend (RecordForm) -> Unit
 ) {
+    val context = LocalContext.current
+    val draftPreferences = remember(context) { context.getSharedPreferences("news_source_form_drafts", Context.MODE_PRIVATE) }
+    var draftRestored by remember(draftKey) { mutableStateOf(false) }
     var title by remember(tab, initialForm) { mutableStateOf(initialForm?.title ?: "") }
     var details by remember(tab, initialForm) { mutableStateOf(initialForm?.details?.let { if (tab == 1) stripSavedEventTime(it) else it } ?: "") }
     var summary by remember(tab, initialForm) { mutableStateOf(initialForm?.summary ?: "") }
@@ -1337,6 +1413,7 @@ private fun RecordFormScreen(
     var districtId by remember(tab, initialForm) { mutableStateOf(initialForm?.districtId.orEmpty()) }
     var category by remember(tab, initialForm) { mutableStateOf(initialForm?.category ?: "general") }
     var priority by remember(tab, initialForm) { mutableStateOf(initialForm?.priority ?: "normal") }
+    var followUpTag by remember(tab, initialForm) { mutableStateOf(initialForm?.followUp ?: false) }
     var location by remember(tab, initialForm) { mutableStateOf(initialForm?.location ?: "") }
     var designation by remember(tab, initialForm) { mutableStateOf(initialForm?.designation ?: "") }
     var organization by remember(tab, initialForm) { mutableStateOf(initialForm?.organization ?: "") }
@@ -1366,12 +1443,66 @@ private fun RecordFormScreen(
     var newCategoryName by remember { mutableStateOf("") }
     var activeTimeTarget by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     var ocrRunning by remember { mutableStateOf(false) }
     var ocrMenuExpanded by remember { mutableStateOf(false) }
     var selectedPhotoUri by remember(tab, initialForm) { mutableStateOf(initialForm?.photoUri) }
     var pendingCameraOcrFile by remember { mutableStateOf<File?>(null) }
     var pendingCameraOcrUri by remember { mutableStateOf<Uri?>(null) }
+
+    LaunchedEffect(draftKey) {
+        val saved = draftPreferences.getString(draftKey, null)
+        if (!saved.isNullOrBlank()) {
+            runCatching { JSONObject(saved) }.onSuccess { draft ->
+                title = draft.optString("title", title)
+                details = draft.optString("details", details)
+                summary = draft.optString("summary", summary)
+                date = draft.optString("date", date)
+                districtId = draft.optString("districtId", districtId)
+                category = draft.optString("category", category)
+                priority = draft.optString("priority", priority)
+                followUpTag = draft.optBoolean("followUpTag", followUpTag)
+                location = draft.optString("location", location)
+                designation = draft.optString("designation", designation)
+                organization = draft.optString("organization", organization)
+                phone = draft.optString("phone", phone)
+                email = draft.optString("email", email)
+                notes = draft.optString("notes", notes)
+                startTime = draft.optString("startTime", startTime)
+                endTime = draft.optString("endTime", endTime)
+                draft.optString("photoUri").takeIf { it.isNotBlank() }?.let { selectedPhotoUri = Uri.parse(it) }
+                draft.optJSONArray("customCategories")?.let { values ->
+                    customCategories = buildList {
+                        for (index in 0 until values.length()) {
+                            val value = values.optString(index).trim()
+                            if (value.isNotBlank()) add(value to value)
+                        }
+                    }
+                }
+                message = "முந்தைய வரைவு மீட்டெடுக்கப்பட்டது. சேமிப்பை மீண்டும் முயற்சிக்கவும்."
+            }.onFailure {
+                draftPreferences.edit().remove(draftKey).apply()
+            }
+        }
+        draftRestored = true
+    }
+
+    LaunchedEffect(
+        draftKey, draftRestored, title, details, summary, date, districtId, category, priority, followUpTag,
+        location, designation, organization, phone, email, notes, startTime, endTime, selectedPhotoUri, customCategories
+    ) {
+        if (!draftRestored) return@LaunchedEffect
+        delay(600)
+        val snapshot = JSONObject()
+            .put("title", title).put("details", details).put("summary", summary).put("date", date)
+            .put("districtId", districtId).put("category", category).put("priority", priority)
+            .put("followUpTag", followUpTag).put("location", location).put("designation", designation)
+            .put("organization", organization).put("phone", phone).put("email", email).put("notes", notes)
+            .put("startTime", startTime).put("endTime", endTime)
+            .put("photoUri", selectedPhotoUri?.toString().orEmpty())
+            .put("customCategories", JSONArray(customCategories.map { it.second }))
+            .put("attachmentPaths", JSONArray(initialForm?.attachmentPaths.orEmpty()))
+        draftPreferences.edit().putString(draftKey, snapshot.toString()).apply()
+    }
 
     fun processOcr(uri: Uri, temporaryFile: File? = null) {
         scope.launch {
@@ -1660,8 +1791,10 @@ private fun RecordFormScreen(
                                             districtId = districtId.takeIf { it.isNotBlank() }, category = category, priority = priority,
                                             location = location.trim(), designation = designation.trim(), organization = organization.trim(),
                                             phone = phone.trim(), email = email.trim(), notes = notes.trim(),
-                                            attachmentPaths = initialForm?.attachmentPaths.orEmpty(), photoUri = selectedPhotoUri
+                                            attachmentPaths = initialForm?.attachmentPaths.orEmpty(), photoUri = selectedPhotoUri,
+                                            followUp = followUpTag
                                         ))
+                                        draftPreferences.edit().remove(draftKey).apply()
                                     } catch (error: Exception) {
                                         message = error.message ?: "சேமிக்க முடியவில்லை."
                                     } finally {
@@ -1751,6 +1884,14 @@ private fun RecordFormScreen(
                     AssistChip(onClick = { showDistrictPicker = true }, label = { Text("⌖  $selectedDistrictName") }, shape = RoundedCornerShape(14.dp))
                 }
                 Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (tab == 0) {
+                        FilterChip(
+                            selected = followUpTag,
+                            onClick = { followUpTag = !followUpTag },
+                            label = { Text(if (followUpTag) "✓ பின்தொடர்வு" else "＋ பின்தொடர்வு") },
+                            modifier = Modifier.height(32.dp)
+                        )
+                    }
                     AssistChip(onClick = { showCategoryPicker = true }, label = { Text("◈  ${categoryDisplayName(category)}") }, shape = RoundedCornerShape(14.dp))
                     AssistChip(onClick = { showPriorityPicker = true }, label = { Text("⚑  ${priorityDisplayName(priority)}") }, shape = RoundedCornerShape(14.dp))
                     AssistChip(onClick = { locationDraft = location; showLocationDialog = true },
