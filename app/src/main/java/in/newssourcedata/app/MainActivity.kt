@@ -772,9 +772,9 @@ private fun MainAppScreen(
                             api.updateAssignment(editId, form.title, form.details, form.date, form.districtId, form.category, form.priority, form.location)
                         }
                         else -> if (editId == null) {
-                            api.addContact(form.title, form.designation, form.organization, form.phone, form.email, form.districtId, form.notes, form.division)
+                            api.addContact(form.title, form.designation, form.phone, form.email, form.districtId, form.notes, form.division)
                         } else {
-                            api.updateContact(editId, form.title, form.designation, form.organization, form.phone, form.email, form.districtId, form.notes, form.division)
+                            api.updateContact(editId, form.title, form.designation, form.phone, form.email, form.districtId, form.notes, form.division)
                         }
                     }
                 } catch (error: Exception) {
@@ -1151,10 +1151,12 @@ private fun MainAppScreen(
                             when {
                                 contactQuickFilter.isBlank() -> true
                                 contactDistrictLabels.contains(contactQuickFilter) ->
-                                    districtNames[item.districtId].orEmpty().equals(contactQuickFilter, ignoreCase = true)
+                                    districtNames[item.districtId].orEmpty().equals(contactQuickFilter, ignoreCase = true) ||
+                                        item.organization.equals(contactQuickFilter, ignoreCase = true)
                                 else ->
                                     item.division.equals(contactQuickFilter, ignoreCase = true) ||
-                                        item.designation.equals(contactQuickFilter, ignoreCase = true)
+                                        item.designation.equals(contactQuickFilter, ignoreCase = true) ||
+                                        item.organization.equals(contactQuickFilter, ignoreCase = true)
                             }
                         }
                         if (filtered.isEmpty()) EmptyListMessage("தொடர்புகள் இல்லை. + பொத்தானை அழுத்திச் சேர்க்கவும்.")
