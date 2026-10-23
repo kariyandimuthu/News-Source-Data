@@ -20,9 +20,19 @@ val supabasePublishableKey = localProperties.getProperty("SUPABASE_PUBLISHABLE_K
     ?: System.getenv("SUPABASE_PUBLISHABLE_KEY")
     ?: "sb_publishable_iY6fpaaFMuRpBpShDVSCtA_OeRglNDw"
 
-// The main-branch workflow restores or creates this keystore before Gradle runs.
-// Explicit configuration prevents Gradle from silently using a different default debug key.
-val stableDebugKeystore = file("${System.getProperty("user.home")}/.android/debug.keystore")
+// Main-branch builds may provide a private, GitHub-Secret-backed signing keystore.
+// Pull-request builds have no signing secret and use the normal ephemeral debug key.
+val permanentSigningKeystore = System.getenv("ANDROID_SIGNING_KEYSTORE")
+    ?.takeIf { it.isNotBlank() }
+    ?.let { file(it) }
+val permanentSigningStorePassword = System.getenv("ANDROID_SIGNING_STORE_PASSWORD")
+val permanentSigningKeyPassword = System.getenv("ANDROID_SIGNING_KEY_PASSWORD")
+val permanentSigningKeyAlias = System.getenv("ANDROID_SIGNING_KEY_ALIAS")
+val usePermanentSigning = permanentSigningKeystore != null &&
+    permanentSigningKeystore.exists() &&
+    !permanentSigningStorePassword.isNullOrBlank() &&
+    !permanentSigningKeyPassword.isNullOrBlank() &&
+    !permanentSigningKeyAlias.isNullOrBlank()
 
 android {
     namespace = "in.newssourcedata.app"
@@ -45,23 +55,23 @@ android {
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"" + supabasePublishableKey + "\"")
     }
 
-    // Use the exact cached keystore when present. Local builds without one retain
-    // Android Gradle Plugin's normal debug-signing fallback.
+    // Use a permanent, private key only when the workflow supplies all credentials.
+    // Otherwise Android Gradle Plugin retains its standard debug-signing behaviour.
     signingConfigs {
-        if (stableDebugKeystore.exists()) {
-            create("stableDebug") {
-                storeFile = stableDebugKeystore
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
+        if (usePermanentSigning) {
+            create("permanent") {
+                storeFile = checkNotNull(permanentSigningKeystore)
+                storePassword = checkNotNull(permanentSigningStorePassword)
+                keyAlias = checkNotNull(permanentSigningKeyAlias)
+                keyPassword = checkNotNull(permanentSigningKeyPassword)
             }
         }
     }
 
     buildTypes {
         getByName("debug") {
-            if (stableDebugKeystore.exists()) {
-                signingConfig = signingConfigs.getByName("stableDebug")
+            if (usePermanentSigning) {
+                signingConfig = signingConfigs.getByName("permanent")
             }
         }
     }
