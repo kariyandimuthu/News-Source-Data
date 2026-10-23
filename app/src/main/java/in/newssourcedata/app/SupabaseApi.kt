@@ -521,7 +521,7 @@ class SupabaseApi(context: Context) {
                 add(
                     ContactRecord(
                         id = row.optString("id"),
-                        fullName = row.optString("full_name"),
+                        fullName = row.optString("full_name", "").takeUnless { it.equals("null", ignoreCase = true) }.orEmpty(),
                         designation = row.optString("designation", "").takeUnless { it.equals("null", ignoreCase = true) }.orEmpty(),
                         organization = row.optString("organization", "").takeUnless { it.equals("null", ignoreCase = true) }.orEmpty(),
                         phone = row.optString("phone", "").takeUnless { it.equals("null", ignoreCase = true) }.orEmpty(),
@@ -1015,7 +1015,6 @@ class SupabaseApi(context: Context) {
     suspend fun addContact(
         fullName: String,
         designation: String,
-        organization: String,
         phone: String,
         email: String,
         districtId: String?,
@@ -1026,7 +1025,6 @@ class SupabaseApi(context: Context) {
             .put("owner_id", requireUserId())
             .put("full_name", fullName.trim())
             .put("designation", nullableValue(designation))
-            .put("organization", nullableValue(organization))
             .put("phone", nullableValue(phone))
             .put("email", nullableValue(email))
             .put("district_id", nullableValue(districtId))
@@ -1072,13 +1070,13 @@ class SupabaseApi(context: Context) {
     }
 
     suspend fun updateContact(
-        id: String, fullName: String, designation: String, organization: String,
+        id: String, fullName: String, designation: String,
         phone: String, email: String, districtId: String?, notes: String, division: String
     ) = withContext(Dispatchers.IO) {
         val payload = JSONObject()
             .put("full_name", fullName.trim())
             .put("designation", nullableValue(designation))
-            // Existing organization values are retained; the organization field is hidden in the editor.
+            // Existing organization values are retained in storage by omitting this column from PATCH.
             .put("phone", nullableValue(phone))
             .put("email", nullableValue(email))
             .put("district_id", nullableValue(districtId))
