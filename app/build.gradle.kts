@@ -20,6 +20,10 @@ val supabasePublishableKey = localProperties.getProperty("SUPABASE_PUBLISHABLE_K
     ?: System.getenv("SUPABASE_PUBLISHABLE_KEY")
     ?: "sb_publishable_iY6fpaaFMuRpBpShDVSCtA_OeRglNDw"
 
+// The main-branch workflow restores or creates this keystore before Gradle runs.
+// Explicit configuration prevents Gradle from silently using a different default debug key.
+val stableDebugKeystore = file("${System.getProperty("user.home")}/.android/debug.keystore")
+
 android {
     namespace = "in.newssourcedata.app"
     compileSdk = 35
@@ -39,6 +43,27 @@ android {
 
         buildConfigField("String", "SUPABASE_URL", "\"" + supabaseUrl + "\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"" + supabasePublishableKey + "\"")
+    }
+
+    // Use the exact cached keystore when present. Local builds without one retain
+    // Android Gradle Plugin's normal debug-signing fallback.
+    signingConfigs {
+        if (stableDebugKeystore.exists()) {
+            create("stableDebug") {
+                storeFile = stableDebugKeystore
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            if (stableDebugKeystore.exists()) {
+                signingConfig = signingConfigs.getByName("stableDebug")
+            }
+        }
     }
 
     buildFeatures {
@@ -64,5 +89,5 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    ksp("androidx.room:room-compiler:2.0.21-1.0.28")
 }
