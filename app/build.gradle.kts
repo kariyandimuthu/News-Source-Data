@@ -42,11 +42,10 @@ android {
         applicationId = "in.newssourcedata.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "2.2"
+        versionCode = 5
+        versionName = "2.3"
 
-        // Keep the sideload APK small for the user's 64-bit ARM Android phone.
-        // Native OCR and translation libraries are packaged for this ABI only.
+        // Limit this sideload APK to the user's 64-bit ARM Android phone.
         ndk {
             abiFilters += setOf("arm64-v8a")
         }
@@ -94,7 +93,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("com.rmtheis:tess-two:9.1.0")
     implementation("com.google.mlkit:translate:17.0.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.room:room-runtime:2.6.1")
