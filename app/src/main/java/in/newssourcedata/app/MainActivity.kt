@@ -772,9 +772,9 @@ private fun MainAppScreen(
                             api.updateAssignment(editId, form.title, form.details, form.date, form.districtId, form.category, form.priority, form.location)
                         }
                         else -> if (editId == null) {
-                            api.addContact(form.title, form.designation, form.organization, form.phone, form.email, form.districtId, form.notes)
+                            api.addContact(form.title, form.designation, form.organization, form.phone, form.email, form.districtId, form.notes, form.division)
                         } else {
-                            api.updateContact(editId, form.title, form.designation, form.organization, form.phone, form.email, form.districtId, form.notes)
+                            api.updateContact(editId, form.title, form.designation, form.organization, form.phone, form.email, form.districtId, form.notes, form.division)
                         }
                     }
                 } catch (error: Exception) {
@@ -895,19 +895,19 @@ private fun MainAppScreen(
             NavigationBar(modifier = Modifier.height(62.dp), windowInsets = WindowInsets(0.dp), tonalElevation = 2.dp) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
-                    onClick = { selectedTab = 0; districtFilter = ""; searchText = ""; categoryFilter = "" },
+                    onClick = { selectedTab = 0; districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = "" },
                     icon = { Text("📰", fontSize = 16.sp) },
                     label = null
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
-                    onClick = { selectedTab = 1; districtFilter = ""; searchText = ""; categoryFilter = "" },
+                    onClick = { selectedTab = 1; districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = "" },
                     icon = { Text("📅", fontSize = 16.sp) },
                     label = null
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
-                    onClick = { selectedTab = 2; districtFilter = ""; searchText = ""; categoryFilter = "" },
+                    onClick = { selectedTab = 2; districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = "" },
                     icon = { Text("👥", fontSize = 16.sp) },
                     label = null
                 )
@@ -1148,11 +1148,14 @@ private fun MainAppScreen(
                     }
                     else -> {
                         val filtered = contacts.filter { item ->
-                            val textMatches = searchText.isBlank() || item.fullName.contains(searchText, true) ||
-                                item.phone.contains(searchText, true) || item.organization.contains(searchText, true) ||
-                                item.designation.contains(searchText, true)
-                            val districtMatches = districtFilter.isBlank() || item.districtId == districtFilter
-                            textMatches && districtMatches && dateMatches(item.createdAt ?: "", dateFilter)
+                            when {
+                                contactQuickFilter.isBlank() -> true
+                                contactDistrictLabels.contains(contactQuickFilter) ->
+                                    districtNames[item.districtId].orEmpty().equals(contactQuickFilter, ignoreCase = true)
+                                else ->
+                                    item.division.equals(contactQuickFilter, ignoreCase = true) ||
+                                        item.designation.equals(contactQuickFilter, ignoreCase = true)
+                            }
                         }
                         if (filtered.isEmpty()) EmptyListMessage("தொடர்புகள் இல்லை. + பொத்தானை அழுத்திச் சேர்க்கவும்.")
                         else {
@@ -1167,7 +1170,7 @@ private fun MainAppScreen(
                                             item = item, districtName = districtName,
                                             onEdit = {
                                                 activeEditId = item.id
-                                                activeFormInitial = RecordForm(item.fullName, date = "", districtId = item.districtId, designation = item.designation, organization = item.organization, phone = item.phone, email = item.email, notes = item.notes)
+                                                activeFormInitial = RecordForm(item.fullName, date = "", districtId = item.districtId, designation = item.designation, organization = item.organization, phone = item.phone, email = item.email, notes = item.notes, division = item.division)
                                                 activeFormTab = 2
                                             },
                                             onDelete = { pendingDelete = 2 to item.id }
@@ -1418,6 +1421,10 @@ private fun AssignmentCard(item: AssignmentRecord, districtName: String, onPrevi
 
 @Composable
 private fun ContactCard(item: ContactRecord, districtName: String, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun String.isMeaningfulContactText(): Boolean =
+    isNotBlank() && !equals("null", ignoreCase = true) && !equals("undefined", ignoreCase = true)
+
+
     val context = LocalContext.current
     val initials = item.fullName.trim().split(Regex("\\s+")).take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("")
     ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp)) {
@@ -1430,12 +1437,12 @@ private fun ContactCard(item: ContactRecord, districtName: String, onEdit: () ->
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(item.fullName, style = MaterialTheme.typography.titleMedium, maxLines = 2)
-                val roleLine = listOf(item.designation, item.organization).filter { it.isNotBlank() }.joinToString(" · ")
+                val roleLine = listOf(item.designation, item.division).filter { it.isMeaningfulContactText() }.joinToString(" · ")
                 if (roleLine.isNotBlank()) Text(roleLine, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
-                if (item.phone.isNotBlank()) Text(item.phone, style = MaterialTheme.typography.bodySmall)
-                if (item.email.isNotBlank()) Text(item.email, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                if (districtName.isNotBlank()) Text(districtName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                if (item.notes.isNotBlank()) Text(item.notes, style = MaterialTheme.typography.bodySmall, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (item.phone.isMeaningfulContactText()) Text(item.phone, style = MaterialTheme.typography.bodySmall)
+                if (item.email.isMeaningfulContactText()) Text(item.email, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                if (districtName.isMeaningfulContactText()) Text(districtName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                if (item.notes.isMeaningfulContactText()) Text(item.notes, style = MaterialTheme.typography.bodySmall, maxLines = 4, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 IconAction(Icons.Default.Call, "அழைக்க", {
@@ -1567,6 +1574,7 @@ private fun RecordFormScreen(
     var followUpTag by remember(tab, initialForm) { mutableStateOf(initialForm?.followUp ?: false) }
     var location by remember(tab, initialForm) { mutableStateOf(initialForm?.location ?: "") }
     var designation by remember(tab, initialForm) { mutableStateOf(initialForm?.designation ?: "") }
+    var division by remember(tab, initialForm) { mutableStateOf(initialForm?.division ?: "") }
     var organization by remember(tab, initialForm) { mutableStateOf(initialForm?.organization ?: "") }
     var phone by remember(tab, initialForm) { mutableStateOf(initialForm?.phone ?: "") }
     var email by remember(tab, initialForm) { mutableStateOf(initialForm?.email ?: "") }
@@ -1585,6 +1593,7 @@ private fun RecordFormScreen(
     var message by remember { mutableStateOf("") }
     var showDatePicker by remember { mutableStateOf(false) }
     var showDistrictPicker by remember { mutableStateOf(false) }
+    var showDivisionPicker by remember { mutableStateOf(false) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showNewCategoryDialog by remember { mutableStateOf(false) }
     var showPriorityPicker by remember { mutableStateOf(false) }
@@ -1613,6 +1622,7 @@ private fun RecordFormScreen(
                 followUpTag = draft.optBoolean("followUpTag", followUpTag)
                 location = draft.optString("location", location)
                 designation = draft.optString("designation", designation)
+                division = draft.optString("division", division)
                 organization = draft.optString("organization", organization)
                 phone = draft.optString("phone", phone)
                 email = draft.optString("email", email)
@@ -1638,7 +1648,7 @@ private fun RecordFormScreen(
 
     LaunchedEffect(
         draftKey, draftRestored, title, details, summary, date, districtId, category, priority, followUpTag,
-        location, designation, organization, phone, email, notes, startTime, endTime, selectedPhotoUri, customCategories
+        location, designation, division, organization, phone, email, notes, startTime, endTime, selectedPhotoUri, customCategories
     ) {
         if (!draftRestored) return@LaunchedEffect
         delay(600)
@@ -1646,7 +1656,7 @@ private fun RecordFormScreen(
             .put("title", title).put("details", details).put("summary", summary).put("date", date)
             .put("districtId", districtId).put("category", category).put("priority", priority)
             .put("followUpTag", followUpTag).put("location", location).put("designation", designation)
-            .put("organization", organization).put("phone", phone).put("email", email).put("notes", notes)
+            .put("division", division).put("organization", organization).put("phone", phone).put("email", email).put("notes", notes)
             .put("startTime", startTime).put("endTime", endTime)
             .put("photoUri", selectedPhotoUri?.toString().orEmpty())
             .put("customCategories", JSONArray(customCategories.map { it.second }))
@@ -1688,6 +1698,9 @@ private fun RecordFormScreen(
     }
 
     if (showDistrictPicker) {
+        val selectableDistricts = if (tab == 2) {
+            contactDistrictLabels.mapNotNull { label -> districts.firstOrNull { it.name == label } }
+        } else districts
         AlertDialog(
             onDismissRequest = { showDistrictPicker = false },
             title = { Text("மாவட்டத்தைத் தேர்வு செய்க") },
@@ -1696,7 +1709,7 @@ private fun RecordFormScreen(
                     TextButton(onClick = { districtId = ""; showDistrictPicker = false }, modifier = Modifier.fillMaxWidth()) {
                         Text("மாவட்டம் குறிப்பிட வேண்டாம்", modifier = Modifier.fillMaxWidth())
                     }
-                    districts.forEach { district ->
+                    selectableDistricts.forEach { district ->
                         TextButton(onClick = { districtId = district.id; showDistrictPicker = false }, modifier = Modifier.fillMaxWidth()) {
                             Text((if (district.id == districtId) "✓  " else "") + district.name, modifier = Modifier.fillMaxWidth())
                         }
@@ -1704,6 +1717,29 @@ private fun RecordFormScreen(
                 }
             },
             confirmButton = { TextButton(onClick = { showDistrictPicker = false }) { Text("மூடு") } }
+        )
+    }
+
+    if (showDivisionPicker) {
+        AlertDialog(
+            onDismissRequest = { showDivisionPicker = false },
+            title = { Text("பிரிவு தேர்வு") },
+            text = {
+                Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    TextButton(onClick = { division = ""; showDivisionPicker = false }, modifier = Modifier.fillMaxWidth()) {
+                        Text("பிரிவு குறிப்பிட வேண்டாம்", modifier = Modifier.fillMaxWidth())
+                    }
+                    contactDivisionOptions.forEach { option ->
+                        TextButton(
+                            onClick = { division = option; showDivisionPicker = false },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text((if (division == option) "✓  " else "") + option, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showDivisionPicker = false }) { Text("மூடு") } }
         )
     }
 
@@ -1854,7 +1890,7 @@ private fun RecordFormScreen(
                                             title = resolvedTitle, details = savedDetails, summary = translatedSummary, date = date,
                                             districtId = districtId.takeIf { it.isNotBlank() }, category = category, priority = priority,
                                             location = location.trim(), designation = designation.trim(), organization = organization.trim(),
-                                            phone = phone.trim(), email = email.trim(), notes = notes.trim(),
+                                            phone = phone.trim(), email = email.trim(), notes = notes.trim(), division = division.trim(),
                                             attachmentPaths = initialForm?.attachmentPaths.orEmpty(), photoUri = selectedPhotoUri,
                                             followUp = followUpTag,
                                             tags = (initialForm?.tags.orEmpty().filterNot { it == "follow_up" } +
@@ -1897,13 +1933,39 @@ private fun RecordFormScreen(
                     }
                 )
                 Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                AssistChip(
+                    onClick = { showDistrictPicker = true },
+                    label = { Text("மாவட்டம்: $selectedDistrictName") },
+                    shape = RoundedCornerShape(14.dp)
+                )
+                Divider(color = MaterialTheme.colorScheme.outlineVariant)
                 EditorLine(phone, { phone = it }, "தொலைபேசி எண்")
                 Divider(color = MaterialTheme.colorScheme.outlineVariant)
                 EditorLine(designation, { designation = it }, "பதவி")
-                EditorLine(organization, { organization = it }, "அலுவலகம் / நிறுவனம்")
+                AssistChip(
+                    onClick = { showDivisionPicker = true },
+                    label = { Text(division.ifBlank { "பிரிவு தேர்வு" }) },
+                    shape = RoundedCornerShape(14.dp)
+                )
+                Divider(color = MaterialTheme.colorScheme.outlineVariant)
                 EditorLine(email, { email = it }, "மின்னஞ்சல்")
-                EditorLine(notes, { notes = it }, "குறிப்புகள்")
-                AssistChip(onClick = { showDistrictPicker = true }, label = { Text("⌖  $selectedDistrictName") }, shape = RoundedCornerShape(14.dp))
+                Text("பயோ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                BasicTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 116.dp).padding(vertical = 8.dp),
+                    minLines = 4,
+                    maxLines = 12,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                    decorationBox = { inner ->
+                        Box {
+                            if (notes.isBlank()) {
+                                Text("முழு விவரங்களையும் இங்கே எழுதவும்…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
+                            }
+                            inner()
+                        }
+                    }
+                )
             } else {
                 if (tab == 0 && selectedPhotoUri != null) {
                     val chosenPhoto = selectedPhotoUri
