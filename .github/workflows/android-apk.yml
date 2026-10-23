@@ -33,6 +33,7 @@ jobs:
 
       # Never keep a private signing key in a public repository's Actions cache.
       # Main-branch APKs are published only when the dedicated signing secret is set.
+      # Keep this workflow as the sole release path for signed APK artifacts.
       - name: Prepare permanent signing key
         id: permanent_signing
         if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
