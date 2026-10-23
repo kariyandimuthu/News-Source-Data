@@ -47,7 +47,8 @@ data class NewsRecord(
     val priority: String,
     val location: String?,
     val createdAt: String?,
-    val attachmentPaths: List<String> = emptyList()
+    val attachmentPaths: List<String> = emptyList(),
+    val tags: List<String> = emptyList()
 )
 
 data class StockVideoRecord(
@@ -86,6 +87,15 @@ data class ContactRecord(
     val createdAt: String?
 )
 
+data class InfoEntryRecord(
+    val id: String,
+    val label: String,
+    val value: String,
+    val groupName: String,
+    val sortOrder: Int,
+    val updatedAt: String?
+)
+
 internal fun extractGoogleDriveFileId(raw: String): String? {
     val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
     val host = uri.host?.lowercase(Locale.ROOT)?.removePrefix("www.") ?: return null
@@ -117,6 +127,7 @@ class SupabaseApi(context: Context) {
 
     private val baseUrl = BuildConfig.SUPABASE_URL.trimEnd('/')
     private val publishableKey = BuildConfig.SUPABASE_PUBLISHABLE_KEY
+    private val sessionRefreshLock = Any()
 
     fun hasSession(): Boolean =
         !preferences.getString("access_token", null).isNullOrBlank() &&
@@ -341,7 +352,7 @@ class SupabaseApi(context: Context) {
     suspend fun getNews(): List<NewsRecord> = withContext(Dispatchers.IO) {
         val rows = JSONArray(
             request(
-                "/rest/v1/news_items?select=id,headline,body,summary,news_date,district_id,category,status,priority,location_text,created_at,attachment_paths&order=news_date.desc,created_at.desc",
+                "/rest/v1/news_items?select=id,headline,body,summary,news_date,district_id,category,status,priority,location_text,created_at,attachment_paths,tags&order=news_date.desc,created_at.desc",
                 "GET",
                 null
             )
@@ -366,6 +377,13 @@ class SupabaseApi(context: Context) {
                             val paths = row.optJSONArray("attachment_paths") ?: JSONArray()
                             for (pathIndex in 0 until paths.length()) {
                                 val value = paths.optString(pathIndex).trim()
+                                if (value.isNotBlank()) add(value)
+                            }
+                        },
+                        tags = buildList {
+                            val tags = row.optJSONArray("tags") ?: JSONArray()
+                            for (tagIndex in 0 until tags.length()) {
+                                val value = tags.optString(tagIndex).trim()
                                 if (value.isNotBlank()) add(value)
                             }
                         }
@@ -432,6 +450,45 @@ class SupabaseApi(context: Context) {
         }
     }
 
+    suspend fun getInfoEntries(): List<InfoEntryRecord> = withContext(Dispatchers.IO) {
+        val rows = JSONArray(
+            request(
+                "/rest/v1/info_entries?select=id,label,value,group_name,sort_order,updated_at&order=sort_order.asc,label.asc",
+                "GET",
+                null
+            )
+        )
+        buildList {
+            for (index in 0 until rows.length()) {
+                val row = rows.getJSONObject(index)
+                add(
+                    InfoEntryRecord(
+                        id = row.optString("id"),
+                        label = row.optString("label"),
+                        value = row.optString("value", ""),
+                        groupName = row.optString("group_name", ""),
+                        sortOrder = row.optInt("sort_order", 0),
+                        updatedAt = optionalString(row, "updated_at")
+                    )
+                )
+            }
+        }
+    }
+
+    suspend fun saveInfoEntry(id: String?, label: String, value: String, groupName: String) = withContext(Dispatchers.IO) {
+        val payload = JSONObject()
+            .put("label", label.trim())
+            .put("value", value.trim())
+            .put("group_name", groupName.trim())
+            .put("updated_at", java.time.Instant.now().toString())
+        if (id.isNullOrBlank()) {
+            payload.put("owner_id", requireUserId())
+            request("/rest/v1/info_entries", "POST", payload)
+        } else {
+            request("/rest/v1/info_entries?id=eq." + encode(id), "PATCH", payload)
+        }
+    }
+
     suspend fun addNews(
         headline: String,
         body: String,
@@ -441,7 +498,8 @@ class SupabaseApi(context: Context) {
         category: String,
         priority: String,
         location: String,
-        attachmentPaths: List<String> = emptyList()
+        attachmentPaths: List<String> = emptyList(),
+        tags: List<String> = emptyList()
     ) = withContext(Dispatchers.IO) {
         val payload = JSONObject()
             .put("owner_id", requireUserId())
@@ -455,6 +513,7 @@ class SupabaseApi(context: Context) {
             .put("priority", priority)
             .put("location_text", nullableValue(location))
             .put("attachment_paths", JSONArray(attachmentPaths))
+            .put("tags", JSONArray(tags))
         request("/rest/v1/news_items", "POST", payload)
     }
 
@@ -892,7 +951,8 @@ class SupabaseApi(context: Context) {
     suspend fun updateNews(
         id: String, headline: String, body: String, summary: String, newsDate: String,
         districtId: String?, category: String, priority: String, location: String,
-        attachmentPaths: List<String> = emptyList()
+        attachmentPaths: List<String> = emptyList(),
+        tags: List<String> = emptyList()
     ) = withContext(Dispatchers.IO) {
         val payload = JSONObject()
             .put("headline", headline.trim())
@@ -904,6 +964,7 @@ class SupabaseApi(context: Context) {
             .put("priority", priority)
             .put("location_text", nullableValue(location))
             .put("attachment_paths", JSONArray(attachmentPaths))
+            .put("tags", JSONArray(tags))
         request("/rest/v1/news_items?id=eq." + encode(id), "PATCH", payload)
     }
 
@@ -985,6 +1046,15 @@ class SupabaseApi(context: Context) {
         }
     }
 
+    private fun accessTokenExpiresSoon(token: String?): Boolean {
+        val payload = token?.split(".")?.getOrNull(1) ?: return false
+        val decoded = runCatching {
+            String(Base64.decode(payload, Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)
+        }.getOrNull() ?: return false
+        val expiry = runCatching { JSONObject(decoded).optLong("exp", 0L) }.getOrDefault(0L)
+        return expiry > 0L && expiry <= System.currentTimeMillis() / 1000L + 120L
+    }
+
     private fun request(
         path: String,
         method: String,
@@ -992,6 +1062,16 @@ class SupabaseApi(context: Context) {
         authenticated: Boolean = true,
         allowRefresh: Boolean = true
     ): String {
+        if (authenticated && allowRefresh && accessTokenExpiresSoon(preferences.getString("access_token", null))) {
+            val refreshed = synchronized(sessionRefreshLock) {
+                if (accessTokenExpiresSoon(preferences.getString("access_token", null))) refreshSession() else true
+            }
+            if (!refreshed) {
+                throw IllegalStateException(
+                    "உள்நுழைவு அமர்வு புதுப்பிக்கப்படவில்லை. இணையத்தைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்; வரைவு சாதனத்தில் பாதுகாக்கப்பட்டுள்ளது."
+                )
+            }
+        }
         val token = if (authenticated) {
             preferences.getString("access_token", null)
                 ?: throw IllegalStateException("உள்நுழையவும்.")
@@ -1000,8 +1080,15 @@ class SupabaseApi(context: Context) {
         }
         val response = executeHttp(path, method, body, token)
         if (response.status == 401 && authenticated && allowRefresh) {
-            if (refreshSession()) return request(path, method, body, authenticated, false)
-            clearStoredSession()
+            val refreshed = synchronized(sessionRefreshLock) {
+                val currentToken = preferences.getString("access_token", null)
+                if (!accessTokenExpiresSoon(currentToken)) true else refreshSession()
+            }
+            if (refreshed) return request(path, method, body, authenticated, false)
+            // A temporary network failure must not force reporters to log in again.
+            throw IllegalStateException(
+                "உள்நுழைவு அமர்வைப் புதுப்பிக்க முடியவில்லை. இணையத்தைச் சரிபார்த்து மீண்டும் சேமிக்கவும்; வரைவு சாதனத்தில் பாதுகாக்கப்பட்டுள்ளது."
+            )
         }
         if (response.status !in 200..299) {
             throw IllegalStateException(friendlyError(response.body, response.status))
@@ -1017,8 +1104,8 @@ class SupabaseApi(context: Context) {
     ): HttpResponse {
         val connection = URL(baseUrl + path).openConnection() as HttpURLConnection
         connection.requestMethod = method
-        connection.connectTimeout = 15_000
-        connection.readTimeout = 20_000
+        connection.connectTimeout = 20_000
+        connection.readTimeout = 60_000
         connection.setRequestProperty("apikey", publishableKey)
         connection.setRequestProperty("Accept", "application/json")
         preferences.getString("device_id", null)?.takeIf { it.isNotBlank() }?.let {
