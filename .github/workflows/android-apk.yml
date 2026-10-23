@@ -31,6 +31,14 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      # Keep the same debug signing certificate across main-branch builds.
+      # Otherwise Android requires uninstalling the previous APK, which erases local login sessions.
+      - name: Restore stable debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: news-source-data-debug-signing-key-v1
+
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 
