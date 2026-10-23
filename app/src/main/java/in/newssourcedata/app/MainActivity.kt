@@ -1421,11 +1421,11 @@ private fun AssignmentCard(item: AssignmentRecord, districtName: String, onPrevi
     }
 }
 
-@Composable
-private fun ContactCard(item: ContactRecord, districtName: String, onEdit: () -> Unit, onDelete: () -> Unit) {
 private fun String.isMeaningfulContactText(): Boolean =
     isNotBlank() && !equals("null", ignoreCase = true) && !equals("undefined", ignoreCase = true)
 
+@Composable
+private fun ContactCard(item: ContactRecord, districtName: String, onEdit: () -> Unit, onDelete: () -> Unit) {
 
     val context = LocalContext.current
     val initials = item.fullName.trim().split(Regex("\\s+")).take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("")
