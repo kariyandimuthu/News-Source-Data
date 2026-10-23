@@ -4,18 +4,14 @@ import android.os.Bundle
 import android.graphics.Bitmap
 import java.net.URLEncoder
 import java.net.URL
-import java.io.FileOutputStream
-import java.io.File
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
-import com.googlecode.tesseract.android.TessBaseAPI
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Call
@@ -30,7 +26,6 @@ import android.content.ClipboardManager
 import android.net.Uri
 import android.widget.ImageView
 import android.widget.Toast
-import androidx.core.content.FileProvider
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -188,6 +183,27 @@ private fun AppRoot(api: SupabaseApi) {
         "pending" -> PendingScreen(
             message = pendingMessage,
             loading = busy,
+            api = api,
+            allowOwnerRestore = api.getDeviceDisplayName().trim().equals("Muthu Rajan", ignoreCase = true),
+            onOwnerRestored = {
+                scope.launch {
+                    busy = true
+                    try {
+                        profile = api.getProfile()
+                        hasOwnerSettings = profile?.role == "owner" &&
+                            (api.getRegisteredDeviceStatus() == "owner" || api.hasOwnerSettingsAccess())
+                        if (profile?.approvalStatus == "approved" && hasOwnerSettings) {
+                            page = "main"
+                        } else {
+                            pendingMessage = "Owner கடவுச்சொல் சரிபார்க்கப்பட்டது; ஆனால் Owner அணுகலை உறுதிப்படுத்த முடியவில்லை."
+                        }
+                    } catch (error: Exception) {
+                        pendingMessage = error.message ?: "Owner அணுகலைச் சரிபார்க்க முடியவில்லை."
+                    } finally {
+                        busy = false
+                    }
+                }
+            },
             onCheckStatus = {
                 scope.launch {
                     busy = true
@@ -325,9 +341,13 @@ private fun LoginScreen(
 private fun PendingScreen(
     message: String,
     loading: Boolean,
+    api: SupabaseApi,
+    allowOwnerRestore: Boolean,
+    onOwnerRestored: () -> Unit,
     onCheckStatus: () -> Unit,
     onSignOut: () -> Unit
 ) {
+    var showOwnerRestoreDialog by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -341,11 +361,84 @@ private fun PendingScreen(
             if (loading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
             else Text("ஒப்புதல் நிலையைச் சரிபார்")
         }
+        if (allowOwnerRestore) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { showOwnerRestoreDialog = true },
+                enabled = !loading,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Owner கடவுச்சொல் மூலம் அணுகலை மீட்டெடு") }
+        }
         Spacer(Modifier.height(8.dp))
         OutlinedButton(onClick = onSignOut, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
             Text("வெளியேறு")
         }
     }
+
+    if (showOwnerRestoreDialog) {
+        OwnerRestoreDialog(
+            api = api,
+            onDismiss = { showOwnerRestoreDialog = false },
+            onRestored = {
+                showOwnerRestoreDialog = false
+                onOwnerRestored()
+            }
+        )
+    }
+}
+
+@Composable
+private fun OwnerRestoreDialog(
+    api: SupabaseApi,
+    onDismiss: () -> Unit,
+    onRestored: () -> Unit
+) {
+    var ownerPassword by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Owner அணுகலை மீட்டெடு") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Muthu Rajan பெயருக்காக முன்பு உருவாக்கிய தனிப்பட்ட Owner கடவுச்சொல்லை உள்ளிடவும். இது செய்தியாளர்களின் பகிரப்பட்ட கடவுச்சொல் அல்ல.")
+                OutlinedTextField(
+                    value = ownerPassword,
+                    onValueChange = { ownerPassword = it; errorMessage = "" },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("தனிப்பட்ட Owner கடவுச்சொல்") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true
+                )
+                if (errorMessage.isNotBlank()) Text(errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !busy && ownerPassword.isNotBlank(),
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        errorMessage = ""
+                        try {
+                            api.restoreOwnerAccess(ownerPassword)
+                            onRestored()
+                        } catch (error: Exception) {
+                            errorMessage = error.message ?: "Owner அணுகலை மீட்டெடுக்க முடியவில்லை."
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            ) {
+                if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Text("சரிபார்த்து மீட்டெடு")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("ரத்து") } }
+    )
 }
 
 private data class RecordForm(
@@ -404,6 +497,8 @@ private fun MainAppScreen(
     hasOwnerSettings: Boolean,
     onSignOut: () -> Unit
 ) {
+    // Re-read the persisted device role after setting the Owner password.
+    val effectiveIsOwner = isOwner || api.getRegisteredDeviceStatus() == "owner"
     var selectedTab by remember { mutableIntStateOf(0) }
     var showStockVideos by remember { mutableStateOf(false) }
     var showInfo by remember { mutableStateOf(false) }
@@ -414,6 +509,7 @@ private fun MainAppScreen(
     var addMenuExpanded by remember { mutableStateOf(false) }
     var showAiAssistant by remember { mutableStateOf(false) }
     var showPasswordDialog by remember { mutableStateOf(false) }
+    var showOwnerPasswordDialog by remember { mutableStateOf(false) }
     var showDeviceApprovalDialog by remember { mutableStateOf(false) }
     var aiLoading by remember { mutableStateOf(false) }
     var aiNews by remember { mutableStateOf<List<NewsRecord>>(emptyList()) }
@@ -503,7 +599,7 @@ private fun MainAppScreen(
     BackHandler(
         enabled = activeFormTab != null || previewNews != null || previewAssignment != null ||
             pendingDelete != null || showDistrictFilter || showDateFilter || showCategoryFilter ||
-            addMenuExpanded || showAiAssistant || showPasswordDialog || showDeviceApprovalDialog || showStockVideos || selectedTab != 0
+            addMenuExpanded || showAiAssistant || showPasswordDialog || showOwnerPasswordDialog || showDeviceApprovalDialog || showStockVideos || selectedTab != 0
     ) {
         when {
             showStockVideos -> showStockVideos = false
@@ -520,6 +616,7 @@ private fun MainAppScreen(
             showCategoryFilter -> showCategoryFilter = false
             addMenuExpanded -> addMenuExpanded = false
             showPasswordDialog -> showPasswordDialog = false
+            showOwnerPasswordDialog -> showOwnerPasswordDialog = false
             showDeviceApprovalDialog -> showDeviceApprovalDialog = false
             showAiAssistant -> showAiAssistant = false
             selectedTab != 0 -> selectedTab = 0
@@ -528,9 +625,10 @@ private fun MainAppScreen(
 
     val categoryFilterOptions = remember(news, assignments) {
         val dynamic = (news.map { it.category } + assignments.map { it.category })
-            .filter { it.isNotBlank() }.distinct().map { it to it }
+            .filter { it.isNotBlank() && !isDuplicatePoliceAccidentCategory(it) }.distinct().map { it to it }
         (listOf("அனைத்து வகைகள்" to "") + categoryOptions + dynamic).distinctBy { it.second }
             .map { (label, value) -> (if (value.isBlank()) "அனைத்து வகைகள்" else categoryDisplayName(value)) to value }
+            .distinctBy { it.first.trim().lowercase(Locale.ROOT) }
     }
     LaunchedEffect(selectedTab, searchText, districtFilter, dateFilter, categoryFilter) { pageNumber = 1 }
     if (showDistrictFilter) FilterOptionsDialog(
@@ -635,7 +733,11 @@ private fun MainAppScreen(
             initialForm = activeFormInitial,
             draftKey = "draft_${activeFormTab ?: selectedTab}_${activeEditId ?: "new"}",
             knownCategories = (news.map { it.category } + assignments.map { it.category })
-                .filter { value -> value.isNotBlank() && categoryOptions.none { it.second == value } }
+                .filter { value ->
+                    value.isNotBlank() &&
+                        !isDuplicatePoliceAccidentCategory(value) &&
+                        categoryOptions.none { it.second == value }
+                }
                 .distinct()
                 .map { value -> value to value },
             onBack = {
@@ -706,6 +808,17 @@ private fun MainAppScreen(
         )
     }
 
+    if (showOwnerPasswordDialog) {
+        OwnerPasswordDialog(
+            api = api,
+            onDismiss = { showOwnerPasswordDialog = false },
+            onPasswordSaved = {
+                showOwnerPasswordDialog = false
+                statusMessage = "Owner கடவுச்சொல் பாதுகாப்பாகச் சேமிக்கப்பட்டது."
+            }
+        )
+    }
+
     if (showDeviceApprovalDialog) {
         DeviceApprovalDialog(
             api = api,
@@ -757,12 +870,7 @@ private fun MainAppScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NewsSourceWordmark(compact = true)
-                        Text(listOf("செய்திகள்", "அசைன்மென்ட்", "தொடர்புகள்")[selectedTab], style = MaterialTheme.typography.titleSmall)
-                    }
-                },
+                title = { NewsSourceWordmark(compact = true) },
                 navigationIcon = {
                     IconButton(onClick = { scope.launch { categoryDrawerState.open() } }) {
                         Icon(Icons.Default.Menu, contentDescription = "செய்தி வகைகள்")
@@ -784,25 +892,25 @@ private fun MainAppScreen(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0; districtFilter = ""; searchText = ""; categoryFilter = "" },
                     icon = { Text("📰", fontSize = 16.sp) },
-                    label = { Text("செய்திகள்", style = MaterialTheme.typography.labelSmall) }
+                    label = null
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1; districtFilter = ""; searchText = ""; categoryFilter = "" },
                     icon = { Text("📅", fontSize = 16.sp) },
-                    label = { Text("அசைன்மென்ட்", style = MaterialTheme.typography.labelSmall) }
+                    label = null
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2; districtFilter = ""; searchText = ""; categoryFilter = "" },
                     icon = { Text("👥", fontSize = 16.sp) },
-                    label = { Text("தொடர்புகள்", style = MaterialTheme.typography.labelSmall) }
+                    label = null
                 )
                 NavigationBarItem(
                     selected = showInfo,
                     onClick = { showInfo = true },
                     icon = { Text("ℹ️", fontSize = 16.sp) },
-                    label = { Text("Info", style = MaterialTheme.typography.labelSmall) }
+                    label = null
                 )
             }
         },
@@ -829,12 +937,18 @@ private fun MainAppScreen(
                         addMenuExpanded = false
                         showAiAssistant = true
                     })
-                    if (isOwner || hasOwnerSettings) {
+                    if (effectiveIsOwner || hasOwnerSettings) {
                         DropdownMenuItem(text = { Text("📱  புதிய சாதனங்களுக்கு ஒப்புதல்") }, onClick = {
                             addMenuExpanded = false
                             showDeviceApprovalDialog = true
                         })
-                        DropdownMenuItem(text = { Text("🔐  கடவுச்சொல் மாற்றம் / எல்லா சாதனங்களிலிருந்தும் வெளியேறு") }, onClick = {
+                        DropdownMenuItem(text = { Text("🔑  Owner கடவுச்சொல் உருவாக்கு / மாற்று") }, onClick = {
+                            addMenuExpanded = false
+                            showOwnerPasswordDialog = true
+                        })
+                    }
+                    if (effectiveIsOwner) {
+                        DropdownMenuItem(text = { Text("🔐  பகிரப்பட்ட கடவுச்சொல் மாற்றம் / எல்லா சாதனங்களிலிருந்தும் வெளியேறு") }, onClick = {
                             addMenuExpanded = false
                             showPasswordDialog = true
                         })
@@ -937,6 +1051,7 @@ private fun MainAppScreen(
                             val districtMatches = districtFilter.isBlank() || item.districtId == districtFilter
                             val categoryMatches = categoryFilter.isBlank() || when (categoryFilter) {
                                 "follow_up" -> item.category == "follow_up" || item.priority == "follow_up" || item.tags.contains("follow_up")
+                                "accident" -> item.category == "accident" || item.category.equals("விபத்து", ignoreCase = true) || isDuplicatePoliceAccidentCategory(item.category)
                                 else -> item.category == categoryFilter
                             }
                             textMatches && districtMatches && categoryMatches && dateMatches(item.newsDate, dateFilter)
@@ -979,6 +1094,7 @@ private fun MainAppScreen(
                             val districtMatches = districtFilter.isBlank() || item.districtId == districtFilter
                             val categoryMatches = categoryFilter.isBlank() || when (categoryFilter) {
                                 "follow_up" -> item.category == "follow_up" || item.priority == "follow_up"
+                                "accident" -> item.category == "accident" || item.category.equals("விபத்து", ignoreCase = true) || isDuplicatePoliceAccidentCategory(item.category)
                                 else -> item.category == categoryFilter
                             }
                             textMatches && districtMatches && categoryMatches && dateMatches(item.eventDate, dateFilter)
@@ -1421,7 +1537,11 @@ private fun RecordFormScreen(
     var summary by remember(tab, initialForm) { mutableStateOf(initialForm?.summary ?: "") }
     var date by remember(tab, initialForm) { mutableStateOf(initialForm?.date?.takeIf { it.isNotBlank() } ?: LocalDate.now().toString()) }
     var districtId by remember(tab, initialForm) { mutableStateOf(initialForm?.districtId.orEmpty()) }
-    var category by remember(tab, initialForm) { mutableStateOf(initialForm?.category ?: "general") }
+    var category by remember(tab, initialForm) {
+        mutableStateOf(
+            initialForm?.category?.let { if (isDuplicatePoliceAccidentCategory(it)) "accident" else it } ?: "general"
+        )
+    }
     var priority by remember(tab, initialForm) { mutableStateOf(initialForm?.priority ?: "normal") }
     var followUpTag by remember(tab, initialForm) { mutableStateOf(initialForm?.followUp ?: false) }
     var location by remember(tab, initialForm) { mutableStateOf(initialForm?.location ?: "") }
@@ -1434,7 +1554,8 @@ private fun RecordFormScreen(
     var endTime by remember(tab, initialForm) { mutableStateOf(initialForm?.details?.let(::readSavedEndTime).orEmpty()) }
     var customCategories by remember(tab, initialForm, knownCategories) {
         mutableStateOf(
-            if (initialForm?.category.isNullOrBlank() || categoryOptions.any { it.second == initialForm?.category } ||
+            if (initialForm?.category.isNullOrBlank() || isDuplicatePoliceAccidentCategory(initialForm?.category.orEmpty()) ||
+                categoryOptions.any { it.second == initialForm?.category } ||
                 knownCategories.any { it.second == initialForm?.category }) emptyList()
             else listOf(initialForm?.category.orEmpty() to initialForm?.category.orEmpty())
         )
@@ -1453,11 +1574,7 @@ private fun RecordFormScreen(
     var newCategoryName by remember { mutableStateOf("") }
     var activeTimeTarget by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    var ocrRunning by remember { mutableStateOf(false) }
-    var ocrMenuExpanded by remember { mutableStateOf(false) }
     var selectedPhotoUri by remember(tab, initialForm) { mutableStateOf(initialForm?.photoUri) }
-    var pendingCameraOcrFile by remember { mutableStateOf<File?>(null) }
-    var pendingCameraOcrUri by remember { mutableStateOf<Uri?>(null) }
 
     LaunchedEffect(draftKey) {
         val saved = draftPreferences.getString(draftKey, null)
@@ -1468,7 +1585,9 @@ private fun RecordFormScreen(
                 summary = draft.optString("summary", summary)
                 date = draft.optString("date", date)
                 districtId = draft.optString("districtId", districtId)
-                category = draft.optString("category", category)
+                category = draft.optString("category", category).let {
+                    if (isDuplicatePoliceAccidentCategory(it)) "accident" else it
+                }
                 priority = draft.optString("priority", priority)
                 followUpTag = draft.optBoolean("followUpTag", followUpTag)
                 location = draft.optString("location", location)
@@ -1484,7 +1603,7 @@ private fun RecordFormScreen(
                     customCategories = buildList {
                         for (index in 0 until values.length()) {
                             val value = values.optString(index).trim()
-                            if (value.isNotBlank()) add(value to value)
+                            if (value.isNotBlank() && !isDuplicatePoliceAccidentCategory(value)) add(value to value)
                         }
                     }
                 }
@@ -1514,43 +1633,6 @@ private fun RecordFormScreen(
         draftPreferences.edit().putString(draftKey, snapshot.toString()).apply()
     }
 
-    fun processOcr(uri: Uri, temporaryFile: File? = null) {
-        scope.launch {
-            ocrRunning = true
-            message = ""
-            try {
-                val recognizedText = performTamilEnglishOcr(context, uri).trim()
-                if (recognizedText.isBlank()) {
-                    message = "படத்தில் வாசிக்கக்கூடிய உரை கிடைக்கவில்லை."
-                } else {
-                    when (tab) {
-                        0, 1 -> details = if (details.isBlank()) recognizedText else details.trimEnd() + "\n\n" + recognizedText
-                        else -> {
-                            val firstLine = recognizedText.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
-                            if (title.isBlank()) title = firstLine.take(150)
-                            val detectedPhone = Regex("(?<!\\d)(?:\\+?\\d[\\d\\s().-]{7,}\\d)(?!\\d)").find(recognizedText)?.value?.trim()
-                            if (phone.isBlank()) phone = detectedPhone.orEmpty()
-                            notes = if (notes.isBlank()) recognizedText else notes.trimEnd() + "\n\n" + recognizedText
-                        }
-                    }
-                    message = "படத்திலிருந்து உரை எடுக்கப்பட்டது. சரிபார்த்து சேமிக்கவும்."
-                }
-            } catch (error: Exception) {
-                message = error.message ?: "OCR செய்ய முடியவில்லை. மீண்டும் முயற்சிக்கவும்."
-            } finally {
-                ocrRunning = false
-                temporaryFile?.delete()
-                if (temporaryFile != null && temporaryFile == pendingCameraOcrFile) {
-                    pendingCameraOcrFile = null
-                    pendingCameraOcrUri = null
-                }
-            }
-        }
-    }
-
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) processOcr(uri)
-    }
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
@@ -1558,36 +1640,6 @@ private fun RecordFormScreen(
             }
             selectedPhotoUri = uri
             message = "படம் இணைக்கப்பட்டது. பதிவேற்றும்போது தானாகச் சுருக்கப்படும்."
-        }
-    }
-    val cameraOcrLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
-        val capturedUri = pendingCameraOcrUri
-        val capturedFile = pendingCameraOcrFile
-        if (captured && capturedUri != null && capturedFile != null) {
-            processOcr(capturedUri, capturedFile)
-        } else {
-            capturedFile?.delete()
-            pendingCameraOcrFile = null
-            pendingCameraOcrUri = null
-            if (!captured) message = "கேமரா படம் எடுக்கப்படவில்லை."
-        }
-    }
-    fun launchOcrCamera() {
-        try {
-            val directory = File(context.cacheDir, "ocr-captures")
-            if (!directory.exists() && !directory.mkdirs()) {
-                throw IllegalStateException("கேமரா தற்காலிக கோப்புறையை உருவாக்க முடியவில்லை.")
-            }
-            val file = File(directory, "ocr-${System.currentTimeMillis()}.jpg")
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-            pendingCameraOcrFile = file
-            pendingCameraOcrUri = uri
-            cameraOcrLauncher.launch(uri)
-        } catch (error: Exception) {
-            pendingCameraOcrFile?.delete()
-            pendingCameraOcrFile = null
-            pendingCameraOcrUri = null
-            message = error.message ?: "கேமராவைத் திறக்க முடியவில்லை."
         }
     }
     val datePickerState = rememberDatePickerState(initialSelectedDateMillis = dateToMillis(date))
@@ -1750,25 +1802,6 @@ private fun RecordFormScreen(
                 },
                 navigationIcon = { TextButton(onClick = onBack) { Text("✕", style = MaterialTheme.typography.titleMedium) } },
                 actions = {
-                    Box {
-                        IconButton(
-                            onClick = { ocrMenuExpanded = true },
-                            enabled = !saving && !ocrRunning
-                        ) {
-                            if (ocrRunning) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            else Icon(Icons.Default.DocumentScanner, contentDescription = "படத்திலிருந்து உரை எடுக்க", tint = MaterialTheme.colorScheme.primary)
-                        }
-                        DropdownMenu(expanded = ocrMenuExpanded, onDismissRequest = { ocrMenuExpanded = false }) {
-                            DropdownMenuItem(
-                                text = { Text("கேலரியில் இருந்து OCR") },
-                                onClick = { ocrMenuExpanded = false; imagePicker.launch(arrayOf("image/*")) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("கேமரா மூலம் OCR") },
-                                onClick = { ocrMenuExpanded = false; launchOcrCamera() }
-                            )
-                        }
-                    }
                     if (tab == 0) {
                         IconButton(
                             onClick = { attachmentPicker.launch(arrayOf("image/*")) },
@@ -1972,7 +2005,13 @@ private fun NewsSourceWordmark(compact: Boolean = false) {
     }
 }
 
-private fun categoryDisplayName(value: String): String = categoryOptions.firstOrNull { it.second == value }?.first ?: value.ifBlank { "வகை தேர்வு" }
+private fun isDuplicatePoliceAccidentCategory(value: String): Boolean =
+    value.filterNot { it.isWhitespace() || it == '•' }.equals("காவல்விபத்து", ignoreCase = true)
+
+private fun categoryDisplayName(value: String): String = when {
+    isDuplicatePoliceAccidentCategory(value) -> "விபத்து"
+    else -> categoryOptions.firstOrNull { it.second == value }?.first ?: value.ifBlank { "வகை தேர்வு" }
+}
 private fun priorityDisplayName(value: String): String = priorityOptions.firstOrNull { it.second == value }?.first ?: value.ifBlank { "சாதாரணம்" }
 private fun stripSavedEventTime(value: String): String = value.replace(Regex("\\n\\s*நிகழ்வு நேரம்:\\s*.*$", RegexOption.DOT_MATCHES_ALL), "").trim()
 private fun readSavedStartTime(value: String): String = Regex("நிகழ்வு நேரம்:\\s*(\\d{2}:\\d{2})\\s*-").find(value)?.groupValues?.getOrNull(1).orEmpty()
@@ -1989,60 +2028,6 @@ private fun millisToDate(value: Long): String = Instant.ofEpochMilli(value).atZo
 private fun dateLabel(value: String): String = runCatching {
     LocalDate.parse(value).format(DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH))
 }.getOrDefault(value)
-
-
-private suspend fun performTamilEnglishOcr(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
-    val root = File(context.filesDir, "news_source_ocr")
-    val tessdata = File(root, "tessdata")
-    if (!tessdata.exists() && !tessdata.mkdirs()) {
-        throw IllegalStateException("OCR தரவு கோப்புறையை உருவாக்க முடியவில்லை.")
-    }
-    listOf("tam", "eng").forEach { language ->
-        val trainedData = File(tessdata, "$language.traineddata")
-        if (!trainedData.exists() || trainedData.length() < 100_000L) {
-            val partial = File(tessdata, "$language.traineddata.part")
-            try {
-                val connection = URL("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/$language.traineddata").openConnection()
-                connection.connectTimeout = 20_000
-                connection.readTimeout = 120_000
-                connection.getInputStream().use { input ->
-                    FileOutputStream(partial).use { output -> input.copyTo(output) }
-                }
-                if (!partial.exists() || partial.length() < 100_000L) {
-                    throw IllegalStateException("$language OCR மொழித் தரவு முழுமையாகப் பதிவிறங்கவில்லை.")
-                }
-                if (trainedData.exists()) trainedData.delete()
-                if (!partial.renameTo(trainedData)) throw IllegalStateException("OCR மொழித் தரவைச் சேமிக்க முடியவில்லை.")
-            } finally {
-                if (partial.exists()) partial.delete()
-            }
-        }
-    }
-
-    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        ?: throw IllegalStateException("படத்தைத் திறக்க முடியவில்லை.")
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    var sampleSize = 1
-    while (maxOf(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > 2000) sampleSize *= 2
-    val bitmap = BitmapFactory.decodeByteArray(
-        bytes, 0, bytes.size,
-        BitmapFactory.Options().apply { inSampleSize = sampleSize }
-    ) ?: throw IllegalStateException("இந்தப் படத்தை வாசிக்க முடியவில்லை.")
-
-    val recognizer = TessBaseAPI()
-    try {
-        if (!recognizer.init(root.absolutePath, "tam+eng")) {
-            throw IllegalStateException("தமிழ்/ஆங்கில OCR இயந்திரத்தைத் தொடங்க முடியவில்லை.")
-        }
-        recognizer.setImage(bitmap)
-        recognizer.getUTF8Text().orEmpty().trim()
-    } finally {
-        recognizer.end()
-        bitmap.recycle()
-    }
-}
-
 
 
 @Composable
@@ -2562,6 +2547,76 @@ private fun DeviceApprovalDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss, enabled = !loading) { Text("முடிந்தது") } }
+    )
+}
+
+@Composable
+private fun OwnerPasswordDialog(
+    api: SupabaseApi,
+    onDismiss: () -> Unit,
+    onPasswordSaved: () -> Unit
+) {
+    var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("தனிப்பட்ட Owner கடவுச்சொல்") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 390.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("இது செய்தியாளர்கள் பயன்படுத்தும் பகிரப்பட்ட கடவுச்சொல்லிலிருந்து தனியானது. குறைந்தது 10 எழுத்துகள் கொண்ட கடவுச்சொல்லை அமைக்கவும்.")
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it; errorMessage = "" },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("புதிய Owner கடவுச்சொல்") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it; errorMessage = "" },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("மீண்டும் உள்ளிடவும்") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true
+                )
+                if (errorMessage.isNotBlank()) {
+                    Text(errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !busy && password.length >= 10 && password.length <= 128 && password == confirmPassword,
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        errorMessage = ""
+                        try {
+                            api.setOwnerPassword(password)
+                            Toast.makeText(context, "Owner கடவுச்சொல் பாதுகாப்பாகச் சேமிக்கப்பட்டது.", Toast.LENGTH_LONG).show()
+                            onPasswordSaved()
+                        } catch (error: Exception) {
+                            errorMessage = error.message ?: "Owner கடவுச்சொல்லைச் சேமிக்க முடியவில்லை."
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            ) {
+                if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Text("பாதுகாப்பாகச் சேமி")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("ரத்து") } }
     )
 }
 

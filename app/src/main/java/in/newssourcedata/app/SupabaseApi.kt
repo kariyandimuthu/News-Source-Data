@@ -166,6 +166,65 @@ class SupabaseApi(context: Context) {
         }
     }
 
+    suspend fun setOwnerPassword(newPassword: String) = withContext(Dispatchers.IO) {
+        if (newPassword.length < 10 || newPassword.length > 128) {
+            throw IllegalStateException("Owner கடவுச்சொல் 10 முதல் 128 எழுத்துகளுக்குள் இருக்க வேண்டும்.")
+        }
+        val deviceId = preferences.getString("device_id", null)
+            ?.takeIf { it.isNotBlank() } ?: throw IllegalStateException("சாதன அடையாளம் கிடைக்கவில்லை.")
+        val deviceSecret = preferences.getString("device_secret", null)
+            ?.takeIf { it.isNotBlank() } ?: throw IllegalStateException("சாதனப் பாதுகாப்புத் திறவுகோல் கிடைக்கவில்லை.")
+        val result = JSONObject(
+            request(
+                "/rest/v1/rpc/set_app_owner_password",
+                "POST",
+                JSONObject()
+                    .put("p_device_id", deviceId)
+                    .put("p_device_secret", deviceSecret)
+                    .put("p_new_password", newPassword)
+            )
+        )
+        if (!result.optBoolean("success", false)) {
+            throw IllegalStateException(result.optString("message").ifBlank { "Owner கடவுச்சொல்லைச் சேமிக்க முடியவில்லை." })
+        }
+        preferences.edit()
+            .putString("device_display_name", "Muthu Rajan")
+            .putString("device_status", "owner")
+            .apply()
+    }
+
+    suspend fun restoreOwnerAccess(ownerPassword: String) = withContext(Dispatchers.IO) {
+        if (ownerPassword.isBlank() || ownerPassword.length > 128) {
+            throw IllegalStateException("தனிப்பட்ட Owner கடவுச்சொல்லை உள்ளிடவும்.")
+        }
+        val deviceId = preferences.getString("device_id", null)
+            ?.takeIf { it.isNotBlank() } ?: throw IllegalStateException("சாதன அடையாளம் கிடைக்கவில்லை.")
+        val deviceSecret = preferences.getString("device_secret", null)
+            ?.takeIf { it.isNotBlank() } ?: throw IllegalStateException("சாதனப் பாதுகாப்புத் திறவுகோல் கிடைக்கவில்லை.")
+        val result = JSONObject(
+            request(
+                "/rest/v1/rpc/restore_app_owner_access",
+                "POST",
+                JSONObject()
+                    .put("p_device_id", deviceId)
+                    .put("p_device_secret", deviceSecret)
+                    .put("p_device_name", getDeviceDisplayName())
+                    .put("p_owner_password", ownerPassword)
+            )
+        )
+        if (!result.optBoolean("success", false)) {
+            throw IllegalStateException(result.optString("message").ifBlank { "Owner அணுகலை மீட்டெடுக்க முடியவில்லை." })
+        }
+        val status = result.optString("status", "owner")
+        if (status != "owner") {
+            throw IllegalStateException("சேவையகம் Owner உரிமையை உறுதிப்படுத்தவில்லை.")
+        }
+        preferences.edit()
+            .putString("device_display_name", "Muthu Rajan")
+            .putString("device_status", "owner")
+            .apply()
+    }
+
     fun setDeviceDisplayName(name: String) {
         preferences.edit().putString("device_display_name", name.trim()).apply()
     }
