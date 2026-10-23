@@ -31,8 +31,14 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      # Create the keystore before the cache step so a cache miss can still be saved after a trusted main build.
-      # This first generated key only becomes the long-term key when a trusted main-branch run caches it.
+      # Restore first so a cached key is not shadowed by a newly generated runner key.
+      # On a cache miss, actions/cache saves the key after the job completes.
+      - name: Restore stable debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: news-source-data-debug-signing-key-v1
+
       - name: Ensure Android debug signing key exists
         run: |
           mkdir -p "$HOME/.android"
@@ -49,12 +55,8 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      # Once a trusted main run seeds this cache, future APKs use the same signing certificate.
-      - name: Restore stable debug signing key
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: news-source-data-debug-signing-key-v1
+      - name: Show signing certificate fingerprint
+        run: keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | grep -E 'SHA256:|SHA256 fingerprint'
 
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
