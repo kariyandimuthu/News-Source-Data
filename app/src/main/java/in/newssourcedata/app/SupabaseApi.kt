@@ -141,6 +141,31 @@ class SupabaseApi(context: Context) {
     fun getRegisteredDeviceStatus(): String =
         preferences.getString("device_status", null).orEmpty()
 
+    /**
+     * Owner settings are available to the original Owner device and to a device
+     * explicitly delegated Owner-settings access by the original Owner.
+     * The server validates the current authenticated account, device ID, secret,
+     * and approval status; no local preference is trusted for this decision.
+     */
+    suspend fun hasOwnerSettingsAccess(): Boolean = withContext(Dispatchers.IO) {
+        val deviceId = preferences.getString("device_id", null)
+            ?.takeIf { it.isNotBlank() } ?: return@withContext false
+        val deviceSecret = preferences.getString("device_secret", null)
+            ?.takeIf { it.isNotBlank() } ?: return@withContext false
+
+        try {
+            request(
+                "/rest/v1/rpc/is_authorized_device_admin",
+                "POST",
+                JSONObject()
+                    .put("p_device_id", deviceId)
+                    .put("p_device_secret", deviceSecret)
+            ).trim().equals("true", ignoreCase = true)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun setDeviceDisplayName(name: String) {
         preferences.edit().putString("device_display_name", name.trim()).apply()
     }
