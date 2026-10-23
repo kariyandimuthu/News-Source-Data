@@ -42,8 +42,8 @@ android {
         applicationId = "in.newssourcedata.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "2.3"
+        versionCode = 6
+        versionName = "2.4"
 
         // Limit this sideload APK to the user's 64-bit ARM Android phone.
         ndk {
