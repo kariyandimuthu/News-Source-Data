@@ -458,7 +458,8 @@ private data class RecordForm(
     val attachmentPaths: List<String> = emptyList(),
     val photoUri: Uri? = null,
     val followUp: Boolean = false,
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    val division: String = ""
 )
 
 private val categoryOptions = listOf(
@@ -472,6 +473,9 @@ private val categoryOptions = listOf(
     "பின்தொடர்வு" to "follow_up",
     "மக்கள் பிரச்சினை" to "public_issue"
 )
+private val contactDistrictLabels = listOf("நெல்லை மாவட்டம்", "நெல்லை மாநகரம்", "தென்காசி", "தூத்துக்குடி")
+private val contactDivisionOptions = listOf("எஸ்பி ஏட்டு", "ஐஎஸ்", "எஸ்பிசிஐடி", "சிபிசிஐடி", "EOW", "CSCID", "Ins", "SI")
+
 
 private val priorityOptions = listOf(
     "குறைவு" to "low",
@@ -522,6 +526,7 @@ private fun MainAppScreen(
     var loading by remember { mutableStateOf(true) }
     var statusMessage by remember { mutableStateOf("") }
     var searchText by remember { mutableStateOf("") }
+    var contactQuickFilter by remember { mutableStateOf("") }
     var districtFilter by remember { mutableStateOf("") }
     var dateFilter by remember { mutableStateOf("all") }
     var categoryFilter by remember { mutableStateOf("") }
@@ -961,6 +966,21 @@ private fun MainAppScreen(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 11.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            if (selectedTab == 2) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(selected = contactQuickFilter.isBlank(), onClick = { contactQuickFilter = ""; pageNumber = 1 }, label = { Text("அனைத்தும்", style = MaterialTheme.typography.labelSmall, maxLines = 1) }, modifier = Modifier.height(34.dp))
+                    contactDistrictLabels.forEach { option ->
+                        FilterChip(selected = contactQuickFilter == option, onClick = { contactQuickFilter = option; pageNumber = 1 }, label = { Text(option, style = MaterialTheme.typography.labelSmall, maxLines = 1) }, modifier = Modifier.height(34.dp))
+                    }
+                    contactDivisionOptions.forEach { option ->
+                        FilterChip(selected = contactQuickFilter == option, onClick = { contactQuickFilter = option; pageNumber = 1 }, label = { Text(option, style = MaterialTheme.typography.labelSmall, maxLines = 1) }, modifier = Modifier.height(34.dp))
+                    }
+                }
+            } else {
             Surface(
                 modifier = Modifier.fillMaxWidth().height(42.dp),
                 shape = RoundedCornerShape(14.dp),
@@ -1013,6 +1033,7 @@ private fun MainAppScreen(
                     )
                     if (categoryFilter.isNotBlank()) TextButton(onClick = { categoryFilter = "" }, contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)) { Text("×") }
                 }
+            }
             }
             if (statusMessage.isNotBlank()) {
                 Text(statusMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, maxLines = 2)
