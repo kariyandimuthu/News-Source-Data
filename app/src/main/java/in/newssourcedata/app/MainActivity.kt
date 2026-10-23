@@ -356,7 +356,8 @@ private data class RecordForm(
     val notes: String = "",
     val attachmentPaths: List<String> = emptyList(),
     val photoUri: Uri? = null,
-    val followUp: Boolean = false
+    val followUp: Boolean = false,
+    val tags: List<String> = emptyList()
 )
 
 private val categoryOptions = listOf(
@@ -645,9 +646,9 @@ private fun MainAppScreen(
                     val attachmentPaths = (form.attachmentPaths + listOfNotNull(uploadedPhotoPath)).distinct()
                     when (targetTab) {
                         0 -> if (editId == null) {
-                            api.addNews(form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location, attachmentPaths, if (form.followUp) listOf("follow_up") else emptyList())
+                            api.addNews(form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location, attachmentPaths, form.tags)
                         } else {
-                            api.updateNews(editId, form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location, attachmentPaths, if (form.followUp) listOf("follow_up") else emptyList())
+                            api.updateNews(editId, form.title, form.details, form.summary, form.date, form.districtId, form.category, form.priority, form.location, attachmentPaths, form.tags)
                         }
                         1 -> if (editId == null) {
                             api.addAssignment(form.title, form.details, form.date, form.districtId, form.category, form.priority, form.location)
@@ -950,7 +951,7 @@ private fun MainAppScreen(
                                             onPreview = { previewNews = item },
                                             onEdit = {
                                                 activeEditId = item.id
-                                                activeFormInitial = RecordForm(item.headline, item.body, item.summary, item.newsDate, item.districtId, item.category, item.priority, item.location.orEmpty(), attachmentPaths = item.attachmentPaths, followUp = item.tags.contains("follow_up") || item.priority == "follow_up")
+                                                activeFormInitial = RecordForm(item.headline, item.body, item.summary, item.newsDate, item.districtId, item.category, item.priority, item.location.orEmpty(), attachmentPaths = item.attachmentPaths, followUp = item.tags.contains("follow_up") || item.priority == "follow_up", tags = item.tags)
                                                 activeFormTab = 0
                                             },
                                             onDelete = { pendingDelete = 0 to item.id },
@@ -1792,7 +1793,9 @@ private fun RecordFormScreen(
                                             location = location.trim(), designation = designation.trim(), organization = organization.trim(),
                                             phone = phone.trim(), email = email.trim(), notes = notes.trim(),
                                             attachmentPaths = initialForm?.attachmentPaths.orEmpty(), photoUri = selectedPhotoUri,
-                                            followUp = followUpTag
+                                            followUp = followUpTag,
+                                            tags = (initialForm?.tags.orEmpty().filterNot { it == "follow_up" } +
+                                                if (followUpTag) listOf("follow_up") else emptyList()).distinct()
                                         ))
                                         draftPreferences.edit().remove(draftKey).apply()
                                     } catch (error: Exception) {
