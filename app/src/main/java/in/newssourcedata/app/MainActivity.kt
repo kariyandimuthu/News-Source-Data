@@ -1386,7 +1386,7 @@ private fun NewsCard(item: NewsRecord, districtName: String, onPreview: () -> Un
     ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp)) {
         Row(modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 9.dp, bottom = 9.dp, end = 5.dp),
             verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(modifier = Modifier.weight(1f).clickable(onClick = onPreview), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(categoryDisplayName(item.category), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     Surface(shape = RoundedCornerShape(6.dp), color = if (item.priority == "high" || item.priority == "urgent" || item.priority == "follow_up") MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
@@ -1400,7 +1400,6 @@ private fun NewsCard(item: NewsRecord, districtName: String, onPreview: () -> Un
                 if (previewBody.isNotBlank()) Text(previewBody, style = MaterialTheme.typography.bodySmall, maxLines = 3, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                IconAction(Icons.Default.Visibility, "முன்னோட்டம்", onPreview, MaterialTheme.colorScheme.primary)
                 IconAction(Icons.Default.Edit, "திருத்து", onEdit)
                 IconAction(Icons.Default.Share, "WhatsApp பகிர்வு", onShare, MaterialTheme.colorScheme.secondary)
                 IconAction(Icons.Default.Delete, "நீக்கு", onDelete, MaterialTheme.colorScheme.error)
@@ -1469,6 +1468,10 @@ private fun StockVideoSearchCard(
 private fun AssignmentCard(item: AssignmentRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onShare: () -> Unit) {
     val day = item.eventDate.split("-").getOrNull(2)?.takeIf { it.isNotBlank() } ?: "—"
     val month = try { LocalDate.parse(item.eventDate).month.name.take(3) } catch (_: Exception) { "" }
+    val paragraphs = assignmentParagraphs(item.description)
+    val canPreview = paragraphs.size >= 2
+    val cardTitle = paragraphs.firstOrNull()?.ifBlank { null } ?: item.title
+    val cardRemainder = paragraphs.drop(1).joinToString("\n\n")
     ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp)) {
         Row(modifier = Modifier.fillMaxWidth().padding(start = 9.dp, top = 9.dp, bottom = 9.dp, end = 5.dp),
             verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1478,11 +1481,14 @@ private fun AssignmentCard(item: AssignmentRecord, districtName: String, onPrevi
                     Text(day, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                modifier = Modifier.weight(1f).then(if (canPreview) Modifier.clickable(onClick = onPreview) else Modifier),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(listOf(categoryDisplayName(item.category), priorityDisplayName(item.priority)).filter { it.isNotBlank() }.joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1)
-                Text(item.title, style = MaterialTheme.typography.titleMedium, maxLines = 3)
-                if (item.description.isNotBlank()) Text(stripSavedEventTime(item.description), style = MaterialTheme.typography.bodySmall, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(cardTitle, style = MaterialTheme.typography.titleMedium)
+                if (cardRemainder.isNotBlank()) Text(cardRemainder, style = MaterialTheme.typography.bodySmall, maxLines = 3, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val locationLine = listOf(districtName, item.location.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
                 if (locationLine.isNotBlank()) Text(locationLine, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 val eventTime = readSavedStartTime(item.description).let { start ->
@@ -1492,7 +1498,7 @@ private fun AssignmentCard(item: AssignmentRecord, districtName: String, onPrevi
                 if (eventTime.isNotBlank()) Text("◷  $eventTime", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                IconAction(Icons.Default.Visibility, "முன்னோட்டம்", onPreview, MaterialTheme.colorScheme.primary)
+                if (canPreview) IconAction(Icons.Default.Visibility, "முன்னோட்டம்", onPreview, MaterialTheme.colorScheme.primary)
                 IconAction(Icons.Default.Edit, "திருத்து", onEdit)
                 IconAction(Icons.Default.Share, "WhatsApp பகிர்வு", onShare, MaterialTheme.colorScheme.secondary)
                 IconAction(Icons.Default.Delete, "நீக்கு", onDelete, MaterialTheme.colorScheme.error)
@@ -1505,7 +1511,7 @@ private fun String.isMeaningfulContactText(): Boolean =
     isNotBlank() && !equals("null", ignoreCase = true) && !equals("undefined", ignoreCase = true)
 
 @Composable
-private fun ContactCard(item: ContactRecord, districtName: String, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun ContactCard(item: ContactRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
 
     val context = LocalContext.current
     val initials = item.fullName.trim().split(Regex("\\s+")).take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("")
@@ -1517,7 +1523,7 @@ private fun ContactCard(item: ContactRecord, districtName: String, onEdit: () ->
                     Text(initials.ifBlank { "?" }, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
                 }
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(modifier = Modifier.weight(1f).clickable(onClick = onPreview), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(item.fullName, style = MaterialTheme.typography.titleMedium, maxLines = 2)
                 val roleLine = listOf(item.designation, item.division).filter { it.isMeaningfulContactText() }.joinToString(" · ")
                 if (roleLine.isNotBlank()) Text(roleLine, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
