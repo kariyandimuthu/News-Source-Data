@@ -1271,6 +1271,85 @@ private fun MainAppScreen(
     }
 }
 
+@Composable
+private fun MainBottomNavigation(
+    selectedTab: Int,
+    showInfo: Boolean,
+    onSelectTab: (Int) -> Unit,
+    onSelectInfo: () -> Unit
+) {
+    NavigationBar(modifier = Modifier.height(62.dp), windowInsets = WindowInsets(0.dp), tonalElevation = 2.dp) {
+        NavigationBarItem(selected = !showInfo && selectedTab == 0, onClick = { onSelectTab(0) }, icon = { Text("📰", fontSize = 16.sp) }, label = null)
+        NavigationBarItem(selected = !showInfo && selectedTab == 1, onClick = { onSelectTab(1) }, icon = { Text("📅", fontSize = 16.sp) }, label = null)
+        NavigationBarItem(selected = !showInfo && selectedTab == 2, onClick = { onSelectTab(2) }, icon = { Text("👥", fontSize = 16.sp) }, label = null)
+        NavigationBarItem(selected = showInfo, onClick = onSelectInfo, icon = { Text("ℹ️", fontSize = 16.sp) }, label = null)
+    }
+}
+
+private fun assignmentParagraphs(value: String): List<String> =
+    stripSavedEventTime(value).split(Regex("\\\\n\\\\s*\\\\n")).map { it.trim() }.filter { it.isNotBlank() }
+
+private fun assignmentDisplayTitle(item: AssignmentRecord): String =
+    assignmentParagraphs(item.description).firstOrNull()?.ifBlank { null } ?: item.title
+
+@Composable
+private fun AssignmentCalendarDialog(
+    assignments: List<AssignmentRecord>,
+    selectedDate: String,
+    onSelectDate: (String) -> Unit,
+    onClearDate: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var displayedMonth by remember(selectedDate) {
+        mutableStateOf(runCatching { java.time.YearMonth.from(LocalDate.parse(selectedDate.take(10))) }.getOrElse { java.time.YearMonth.now() })
+    }
+    val assignmentDates = remember(assignments) {
+        assignments.map { it.eventDate.take(10) }.filter { it.matches(Regex("\\\\d{4}-\\\\d{2}-\\\\d{2}")) }.toSet()
+    }
+    val selectedLocalDate = runCatching { LocalDate.parse(selectedDate.take(10)) }.getOrNull()
+    val weekdays = listOf("ஞா", "தி", "செ", "பு", "வி", "வெ", "ச")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("அசைன்மென்ட் காலண்டர்")
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(onClick = { displayedMonth = displayedMonth.minusMonths(1) }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+                    Text(displayedMonth.month.getDisplayName(java.time.format.TextStyle.FULL, Locale("ta", "IN")) + " " + displayedMonth.year, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    TextButton(onClick = { displayedMonth = displayedMonth.plusMonths(1) }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("›", style = MaterialTheme.typography.headlineSmall) }
+                }
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 430.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(modifier = Modifier.fillMaxWidth()) { weekdays.forEach { label -> Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
+                val offset = displayedMonth.atDay(1).dayOfWeek.value % 7
+                repeat(6) { week ->
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        repeat(7) { weekday ->
+                            val dayNumber = week * 7 + weekday - offset + 1
+                            if (dayNumber in 1..displayedMonth.lengthOfMonth()) {
+                                val date = displayedMonth.atDay(dayNumber)
+                                val key = date.toString()
+                                val hasItems = key in assignmentDates
+                                val chosen = selectedLocalDate == date
+                                val bg = when { chosen -> MaterialTheme.colorScheme.primary; hasItems -> MaterialTheme.colorScheme.primaryContainer; else -> MaterialTheme.colorScheme.surface }
+                                val fg = if (chosen) MaterialTheme.colorScheme.onPrimary else if (hasItems) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                Box(modifier = Modifier.weight(1f).aspectRatio(1f).padding(2.dp).clip(RoundedCornerShape(9.dp)).background(bg).clickable { onSelectDate(key) }, contentAlignment = Alignment.Center) {
+                                    Text(dayNumber.toString(), style = MaterialTheme.typography.bodyMedium, color = fg)
+                                    if (hasItems) Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 3.dp).size(4.dp).background(if (chosen) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary, RoundedCornerShape(50.dp)))
+                                }
+                            } else Spacer(modifier = Modifier.weight(1f).aspectRatio(1f))
+                        }
+                    }
+                }
+                Text("நிறமிடப்பட்ட தேதிகளில் அசைன்மென்ட்கள் உள்ளன.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = onClearDate) { Text("அனைத்து தேதிகளும்") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("மூடு") } }
+    )
+}
 private fun dateMatches(value: String, filter: String): Boolean {
     if (filter == "all" || value.isBlank()) return true
     val recordDate = try { LocalDate.parse(value.take(10)) } catch (_: Exception) { return true }
