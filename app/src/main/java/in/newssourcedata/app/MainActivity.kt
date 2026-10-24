@@ -522,6 +522,9 @@ private fun MainAppScreen(
     var pendingDelete by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var previewNews by remember { mutableStateOf<NewsRecord?>(null) }
     var previewAssignment by remember { mutableStateOf<AssignmentRecord?>(null) }
+    var previewContact by remember { mutableStateOf<ContactRecord?>(null) }
+    var showAssignmentCalendar by remember { mutableStateOf(false) }
+    var selectedAssignmentDate by remember { mutableStateOf("") }
     var refreshVersion by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(true) }
     var statusMessage by remember { mutableStateOf("") }
@@ -592,18 +595,50 @@ private fun MainAppScreen(
     val context = LocalContext.current
 
     if (showStockVideos) {
-        StockVideosScreen(api = api, onBack = { showStockVideos = false; refreshVersion += 1 })
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f)) {
+                StockVideosScreen(api = api, onBack = { showStockVideos = false; refreshVersion += 1 })
+            }
+            MainBottomNavigation(
+                selectedTab = selectedTab,
+                showInfo = false,
+                onSelectTab = { tab ->
+                    showStockVideos = false
+                    showInfo = false
+                    selectedTab = tab
+                    districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = ""
+                    selectedAssignmentDate = ""
+                },
+                onSelectInfo = { showStockVideos = false; showInfo = true }
+            )
+        }
         return
     }
     if (showInfo) {
-        InfoScreen(api = api, onBack = { showInfo = false; refreshVersion += 1 })
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f)) {
+                InfoScreen(api = api, onBack = { showInfo = false; refreshVersion += 1 })
+            }
+            MainBottomNavigation(
+                selectedTab = selectedTab,
+                showInfo = true,
+                onSelectTab = { tab ->
+                    showInfo = false
+                    showStockVideos = false
+                    selectedTab = tab
+                    districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = ""
+                    selectedAssignmentDate = ""
+                },
+                onSelectInfo = { showInfo = true; showStockVideos = false }
+            )
+        }
         return
     }
 
     // Handle Android system Back before the activity closes.
     BackHandler(
-        enabled = activeFormTab != null || previewNews != null || previewAssignment != null ||
-            pendingDelete != null || showDistrictFilter || showDateFilter || showCategoryFilter ||
+        enabled = activeFormTab != null || previewNews != null || previewAssignment != null || previewContact != null ||
+            pendingDelete != null || showDistrictFilter || showDateFilter || showCategoryFilter || showAssignmentCalendar ||
             addMenuExpanded || showAiAssistant || showPasswordDialog || showOwnerPasswordDialog || showDeviceApprovalDialog || showStockVideos || selectedTab != 0
     ) {
         when {
@@ -613,8 +648,10 @@ private fun MainAppScreen(
                 activeEditId = null
                 activeFormInitial = null
             }
+            showAssignmentCalendar -> showAssignmentCalendar = false
             previewNews != null -> previewNews = null
             previewAssignment != null -> previewAssignment = null
+            previewContact != null -> previewContact = null
             pendingDelete != null -> pendingDelete = null
             showDistrictFilter -> showDistrictFilter = false
             showDateFilter -> showDateFilter = false
@@ -635,7 +672,7 @@ private fun MainAppScreen(
             .map { (label, value) -> (if (value.isBlank()) "அனைத்து வகைகள்" else categoryDisplayName(value)) to value }
             .distinctBy { it.first.trim().lowercase(Locale.ROOT) }
     }
-    LaunchedEffect(selectedTab, searchText, districtFilter, dateFilter, categoryFilter) { pageNumber = 1 }
+    LaunchedEffect(selectedTab, searchText, districtFilter, dateFilter, categoryFilter, selectedAssignmentDate, contactQuickFilter) { pageNumber = 1 }
     if (showDistrictFilter) FilterOptionsDialog(
         title = "மாவட்டம்",
         choices = listOf("அனைத்து மாவட்டங்கள்" to "") + districts.map { it.name to it.id },
@@ -650,6 +687,25 @@ private fun MainAppScreen(
         title = "செய்தி வகை", choices = categoryFilterOptions, selected = categoryFilter,
         onSelect = { categoryFilter = it; showCategoryFilter = false }, onDismiss = { showCategoryFilter = false }
     )
+    if (showAssignmentCalendar) {
+        AssignmentCalendarDialog(
+            assignments = assignments,
+            selectedDate = selectedAssignmentDate,
+            onSelectDate = { date ->
+                selectedAssignmentDate = date
+                dateFilter = "all"
+                showAssignmentCalendar = false
+                pageNumber = 1
+            },
+            onClearDate = {
+                selectedAssignmentDate = ""
+                showAssignmentCalendar = false
+                pageNumber = 1
+            },
+            onDismiss = { showAssignmentCalendar = false }
+        )
+    }
+
 
     pendingDelete?.let { request ->
         AlertDialog(
@@ -700,6 +756,33 @@ private fun MainAppScreen(
                         if (item.description.isNotBlank()) Text(item.description, style = MaterialTheme.typography.bodyLarge)
                     }
                     Button(onClick = { previewAssignment = null }, modifier = Modifier.fillMaxWidth()) { Text("மூடு") }
+                }
+            }
+        }
+    }
+
+
+    previewContact?.let { item ->
+        Dialog(
+            onDismissRequest = { previewContact = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Column(modifier = Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("தொடர்பு முன்னோட்டம்", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(item.fullName, style = MaterialTheme.typography.headlineSmall)
+                    val role = listOf(item.designation, item.division).filter { it.isMeaningfulContactText() }.joinToString(" · ")
+                    if (role.isNotBlank()) Text(role, style = MaterialTheme.typography.bodyMedium)
+                    val districtName = districtNames[item.districtId].orEmpty()
+                    if (districtName.isMeaningfulContactText()) Text("மாவட்டம்: $districtName", style = MaterialTheme.typography.bodySmall)
+                    if (item.phone.isMeaningfulContactText()) Text("தொலைபேசி: ${item.phone}", style = MaterialTheme.typography.bodyMedium)
+                    if (item.email.isMeaningfulContactText()) Text("மின்னஞ்சல்: ${item.email}", style = MaterialTheme.typography.bodyMedium)
+                    Divider()
+                    Text("பயோ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Column(modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                        if (item.notes.isMeaningfulContactText()) Text(item.notes, style = MaterialTheme.typography.bodyLarge)
+                    }
+                    Button(onClick = { previewContact = null }, modifier = Modifier.fillMaxWidth()) { Text("மூடு") }
                 }
             }
         }
@@ -892,32 +975,18 @@ private fun MainAppScreen(
             )
         },
         bottomBar = {
-            NavigationBar(modifier = Modifier.height(62.dp), windowInsets = WindowInsets(0.dp), tonalElevation = 2.dp) {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0; districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = "" },
-                    icon = { Text("📰", fontSize = 16.sp) },
-                    label = null
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1; districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = "" },
-                    icon = { Text("📅", fontSize = 16.sp) },
-                    label = null
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2; districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = "" },
-                    icon = { Text("👥", fontSize = 16.sp) },
-                    label = null
-                )
-                NavigationBarItem(
-                    selected = showInfo,
-                    onClick = { showInfo = true },
-                    icon = { Text("ℹ️", fontSize = 16.sp) },
-                    label = null
-                )
-            }
+            MainBottomNavigation(
+                selectedTab = selectedTab,
+                showInfo = false,
+                onSelectTab = { tab ->
+                    selectedTab = tab
+                    showInfo = false
+                    showStockVideos = false
+                    districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = ""
+                    selectedAssignmentDate = ""
+                },
+                onSelectInfo = { showInfo = true; showStockVideos = false }
+            )
         },
         floatingActionButton = {
             Box {
