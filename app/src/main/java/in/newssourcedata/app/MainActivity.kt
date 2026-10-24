@@ -746,14 +746,15 @@ private fun MainAppScreen(
                 Column(modifier = Modifier.fillMaxSize().padding(18.dp)) {
                     Text("அசைன்மென்ட் முன்னோட்டம்", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(12.dp))
-                    Text(item.title, style = MaterialTheme.typography.headlineSmall)
+                    Text(assignmentDisplayTitle(item), style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.height(8.dp))
                     val meta = listOf(item.eventDate, districtNames[item.districtId].orEmpty(), item.location.orEmpty())
                         .filter { it.isNotBlank() && it != "மாவட்டம் குறிப்பிடப்படவில்லை" }.joinToString(" · ")
                     if (meta.isNotBlank()) Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(16.dp))
                     Column(modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                        if (item.description.isNotBlank()) Text(item.description, style = MaterialTheme.typography.bodyLarge)
+                        val bodyAfterTitle = assignmentParagraphs(item.description).drop(1).joinToString("\\n\\n")
+                        if (bodyAfterTitle.isNotBlank()) Text(bodyAfterTitle, style = MaterialTheme.typography.bodyLarge)
                     }
                     Button(onClick = { previewAssignment = null }, modifier = Modifier.fillMaxWidth()) { Text("மூடு") }
                 }
@@ -1966,8 +1967,13 @@ private fun RecordFormScreen(
                                         val sourceDetails = details.trim()
                                         val translatedDetails = if (tab == 0) translateEnglishToTamilIfNeeded(sourceDetails) else sourceDetails
                                         val translatedSummary = if (tab == 0) translateEnglishToTamilIfNeeded(summary.trim()) else summary.trim()
-                                        val resolvedTitle = if (tab == 2) title.trim() else translatedDetails
-                                            .split(Regex("\\n\\s*\\n|\\r?\\n")).firstOrNull()?.trim().orEmpty().take(180)
+                                        val firstParagraph = stripSavedEventTime(translatedDetails)
+                                            .split(Regex("\\n\\s*\\n|\\r?\\n")).firstOrNull()?.trim().orEmpty()
+                                        val resolvedTitle = when (tab) {
+                                            2 -> title.trim()
+                                            1 -> firstParagraph
+                                            else -> firstParagraph.take(180)
+                                        }
                                         if (resolvedTitle.isBlank()) throw IllegalStateException("செய்தியின் தலைப்பை உருவாக்க முடியவில்லை.")
                                         details = translatedDetails
                                         summary = translatedSummary
