@@ -1077,6 +1077,11 @@ private fun MainAppScreen(
                     if (searchText.isNotBlank()) {
                         IconButton(onClick = { searchText = "" }, modifier = Modifier.size(28.dp)) { Text("×", fontSize = 20.sp) }
                     }
+                    if (selectedTab == 1) {
+                        IconButton(onClick = { showAssignmentCalendar = true }, modifier = Modifier.size(30.dp)) {
+                            Text("🗓️", fontSize = 17.sp)
+                        }
+                    }
                 }
             }
             Row(
@@ -1187,8 +1192,13 @@ private fun MainAppScreen(
                                 "accident" -> item.category == "accident" || item.category.equals("விபத்து", ignoreCase = true) || isDuplicatePoliceAccidentCategory(item.category)
                                 else -> item.category == categoryFilter
                             }
-                            textMatches && districtMatches && categoryMatches && dateMatches(item.eventDate, dateFilter)
-                        }
+                            val selectedDayMatches = selectedAssignmentDate.isBlank() || item.eventDate.take(10) == selectedAssignmentDate
+                            textMatches && districtMatches && categoryMatches && selectedDayMatches && dateMatches(item.eventDate, dateFilter)
+                        }.sortedWith(
+                            compareBy<AssignmentRecord> { it.eventDate.ifBlank { "9999-12-31" }.take(10) }
+                                .thenBy { readSavedStartTime(it.description).ifBlank { "99:99" } }
+                                .thenBy { it.createdAt.orEmpty() }
+                        )
                         if (filtered.isEmpty()) EmptyListMessage("அசைன்மென்ட் இல்லை. + பொத்தானை அழுத்திச் சேர்க்கவும்.")
                         else {
                             val totalPages = (filtered.size + 9) / 10
@@ -1239,6 +1249,7 @@ private fun MainAppScreen(
                                         val districtName = districtNames[item.districtId] ?: ""
                                         ContactCard(
                                             item = item, districtName = districtName,
+                                            onPreview = { previewContact = item },
                                             onEdit = {
                                                 activeEditId = item.id
                                                 activeFormInitial = RecordForm(item.fullName, date = "", districtId = item.districtId, designation = item.designation, organization = item.organization, phone = item.phone, email = item.email, notes = item.notes, division = item.division)
