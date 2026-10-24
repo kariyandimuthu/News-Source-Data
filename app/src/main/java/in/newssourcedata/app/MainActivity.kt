@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Chat
@@ -522,6 +523,9 @@ private fun MainAppScreen(
     var pendingDelete by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var previewNews by remember { mutableStateOf<NewsRecord?>(null) }
     var previewAssignment by remember { mutableStateOf<AssignmentRecord?>(null) }
+    var previewContact by remember { mutableStateOf<ContactRecord?>(null) }
+    var showAssignmentCalendar by remember { mutableStateOf(false) }
+    var selectedAssignmentDate by remember { mutableStateOf("") }
     var refreshVersion by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(true) }
     var statusMessage by remember { mutableStateOf("") }
@@ -592,18 +596,50 @@ private fun MainAppScreen(
     val context = LocalContext.current
 
     if (showStockVideos) {
-        StockVideosScreen(api = api, onBack = { showStockVideos = false; refreshVersion += 1 })
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f)) {
+                StockVideosScreen(api = api, onBack = { showStockVideos = false; refreshVersion += 1 })
+            }
+            MainBottomNavigation(
+                selectedTab = selectedTab,
+                showInfo = false,
+                onSelectTab = { tab ->
+                    showStockVideos = false
+                    showInfo = false
+                    selectedTab = tab
+                    districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = ""
+                    selectedAssignmentDate = ""
+                },
+                onSelectInfo = { showStockVideos = false; showInfo = true }
+            )
+        }
         return
     }
     if (showInfo) {
-        InfoScreen(api = api, onBack = { showInfo = false; refreshVersion += 1 })
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f)) {
+                InfoScreen(api = api, onBack = { showInfo = false; refreshVersion += 1 })
+            }
+            MainBottomNavigation(
+                selectedTab = selectedTab,
+                showInfo = true,
+                onSelectTab = { tab ->
+                    showInfo = false
+                    showStockVideos = false
+                    selectedTab = tab
+                    districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = ""
+                    selectedAssignmentDate = ""
+                },
+                onSelectInfo = { showInfo = true; showStockVideos = false }
+            )
+        }
         return
     }
 
     // Handle Android system Back before the activity closes.
     BackHandler(
-        enabled = activeFormTab != null || previewNews != null || previewAssignment != null ||
-            pendingDelete != null || showDistrictFilter || showDateFilter || showCategoryFilter ||
+        enabled = activeFormTab != null || previewNews != null || previewAssignment != null || previewContact != null ||
+            pendingDelete != null || showDistrictFilter || showDateFilter || showCategoryFilter || showAssignmentCalendar ||
             addMenuExpanded || showAiAssistant || showPasswordDialog || showOwnerPasswordDialog || showDeviceApprovalDialog || showStockVideos || selectedTab != 0
     ) {
         when {
@@ -613,8 +649,10 @@ private fun MainAppScreen(
                 activeEditId = null
                 activeFormInitial = null
             }
+            showAssignmentCalendar -> showAssignmentCalendar = false
             previewNews != null -> previewNews = null
             previewAssignment != null -> previewAssignment = null
+            previewContact != null -> previewContact = null
             pendingDelete != null -> pendingDelete = null
             showDistrictFilter -> showDistrictFilter = false
             showDateFilter -> showDateFilter = false
@@ -635,7 +673,7 @@ private fun MainAppScreen(
             .map { (label, value) -> (if (value.isBlank()) "அனைத்து வகைகள்" else categoryDisplayName(value)) to value }
             .distinctBy { it.first.trim().lowercase(Locale.ROOT) }
     }
-    LaunchedEffect(selectedTab, searchText, districtFilter, dateFilter, categoryFilter) { pageNumber = 1 }
+    LaunchedEffect(selectedTab, searchText, districtFilter, dateFilter, categoryFilter, selectedAssignmentDate, contactQuickFilter) { pageNumber = 1 }
     if (showDistrictFilter) FilterOptionsDialog(
         title = "மாவட்டம்",
         choices = listOf("அனைத்து மாவட்டங்கள்" to "") + districts.map { it.name to it.id },
@@ -650,6 +688,25 @@ private fun MainAppScreen(
         title = "செய்தி வகை", choices = categoryFilterOptions, selected = categoryFilter,
         onSelect = { categoryFilter = it; showCategoryFilter = false }, onDismiss = { showCategoryFilter = false }
     )
+    if (showAssignmentCalendar) {
+        AssignmentCalendarDialog(
+            assignments = assignments,
+            selectedDate = selectedAssignmentDate,
+            onSelectDate = { date ->
+                selectedAssignmentDate = date
+                dateFilter = "all"
+                showAssignmentCalendar = false
+                pageNumber = 1
+            },
+            onClearDate = {
+                selectedAssignmentDate = ""
+                showAssignmentCalendar = false
+                pageNumber = 1
+            },
+            onDismiss = { showAssignmentCalendar = false }
+        )
+    }
+
 
     pendingDelete?.let { request ->
         AlertDialog(
@@ -690,16 +747,44 @@ private fun MainAppScreen(
                 Column(modifier = Modifier.fillMaxSize().padding(18.dp)) {
                     Text("அசைன்மென்ட் முன்னோட்டம்", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(12.dp))
-                    Text(item.title, style = MaterialTheme.typography.headlineSmall)
+                    Text(assignmentDisplayTitle(item), style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.height(8.dp))
                     val meta = listOf(item.eventDate, districtNames[item.districtId].orEmpty(), item.location.orEmpty())
                         .filter { it.isNotBlank() && it != "மாவட்டம் குறிப்பிடப்படவில்லை" }.joinToString(" · ")
                     if (meta.isNotBlank()) Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(16.dp))
                     Column(modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                        if (item.description.isNotBlank()) Text(item.description, style = MaterialTheme.typography.bodyLarge)
+                        val bodyAfterTitle = assignmentParagraphs(item.description).drop(1).joinToString("\\n\\n")
+                        if (bodyAfterTitle.isNotBlank()) Text(bodyAfterTitle, style = MaterialTheme.typography.bodyLarge)
                     }
                     Button(onClick = { previewAssignment = null }, modifier = Modifier.fillMaxWidth()) { Text("மூடு") }
+                }
+            }
+        }
+    }
+
+
+    previewContact?.let { item ->
+        Dialog(
+            onDismissRequest = { previewContact = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Column(modifier = Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("தொடர்பு முன்னோட்டம்", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(item.fullName, style = MaterialTheme.typography.headlineSmall)
+                    val role = listOf(item.designation, item.division).filter { it.isMeaningfulContactText() }.joinToString(" · ")
+                    if (role.isNotBlank()) Text(role, style = MaterialTheme.typography.bodyMedium)
+                    val districtName = districtNames[item.districtId].orEmpty()
+                    if (districtName.isMeaningfulContactText()) Text("மாவட்டம்: $districtName", style = MaterialTheme.typography.bodySmall)
+                    if (item.phone.isMeaningfulContactText()) Text("தொலைபேசி: ${item.phone}", style = MaterialTheme.typography.bodyMedium)
+                    if (item.email.isMeaningfulContactText()) Text("மின்னஞ்சல்: ${item.email}", style = MaterialTheme.typography.bodyMedium)
+                    Divider()
+                    Text("பயோ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Column(modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                        if (item.notes.isMeaningfulContactText()) Text(item.notes, style = MaterialTheme.typography.bodyLarge)
+                    }
+                    Button(onClick = { previewContact = null }, modifier = Modifier.fillMaxWidth()) { Text("மூடு") }
                 }
             }
         }
@@ -892,32 +977,18 @@ private fun MainAppScreen(
             )
         },
         bottomBar = {
-            NavigationBar(modifier = Modifier.height(62.dp), windowInsets = WindowInsets(0.dp), tonalElevation = 2.dp) {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0; districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = "" },
-                    icon = { Text("📰", fontSize = 16.sp) },
-                    label = null
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1; districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = "" },
-                    icon = { Text("📅", fontSize = 16.sp) },
-                    label = null
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2; districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = "" },
-                    icon = { Text("👥", fontSize = 16.sp) },
-                    label = null
-                )
-                NavigationBarItem(
-                    selected = showInfo,
-                    onClick = { showInfo = true },
-                    icon = { Text("ℹ️", fontSize = 16.sp) },
-                    label = null
-                )
-            }
+            MainBottomNavigation(
+                selectedTab = selectedTab,
+                showInfo = false,
+                onSelectTab = { tab ->
+                    selectedTab = tab
+                    showInfo = false
+                    showStockVideos = false
+                    districtFilter = ""; searchText = ""; categoryFilter = ""; contactQuickFilter = ""
+                    selectedAssignmentDate = ""
+                },
+                onSelectInfo = { showInfo = true; showStockVideos = false }
+            )
         },
         floatingActionButton = {
             Box {
@@ -1007,6 +1078,11 @@ private fun MainAppScreen(
                     )
                     if (searchText.isNotBlank()) {
                         IconButton(onClick = { searchText = "" }, modifier = Modifier.size(28.dp)) { Text("×", fontSize = 20.sp) }
+                    }
+                    if (selectedTab == 1) {
+                        IconButton(onClick = { showAssignmentCalendar = true }, modifier = Modifier.size(30.dp)) {
+                            Text("🗓️", fontSize = 17.sp)
+                        }
                     }
                 }
             }
@@ -1118,8 +1194,13 @@ private fun MainAppScreen(
                                 "accident" -> item.category == "accident" || item.category.equals("விபத்து", ignoreCase = true) || isDuplicatePoliceAccidentCategory(item.category)
                                 else -> item.category == categoryFilter
                             }
-                            textMatches && districtMatches && categoryMatches && dateMatches(item.eventDate, dateFilter)
-                        }
+                            val selectedDayMatches = selectedAssignmentDate.isBlank() || item.eventDate.take(10) == selectedAssignmentDate
+                            textMatches && districtMatches && categoryMatches && selectedDayMatches && dateMatches(item.eventDate, dateFilter)
+                        }.sortedWith(
+                            compareBy<AssignmentRecord> { it.eventDate.ifBlank { "9999-12-31" }.take(10) }
+                                .thenBy { readSavedStartTime(it.description).ifBlank { "99:99" } }
+                                .thenBy { it.createdAt.orEmpty() }
+                        )
                         if (filtered.isEmpty()) EmptyListMessage("அசைன்மென்ட் இல்லை. + பொத்தானை அழுத்திச் சேர்க்கவும்.")
                         else {
                             val totalPages = (filtered.size + 9) / 10
@@ -1170,6 +1251,7 @@ private fun MainAppScreen(
                                         val districtName = districtNames[item.districtId] ?: ""
                                         ContactCard(
                                             item = item, districtName = districtName,
+                                            onPreview = { previewContact = item },
                                             onEdit = {
                                                 activeEditId = item.id
                                                 activeFormInitial = RecordForm(item.fullName, date = "", districtId = item.districtId, designation = item.designation, organization = item.organization, phone = item.phone, email = item.email, notes = item.notes, division = item.division)
@@ -1190,6 +1272,85 @@ private fun MainAppScreen(
     }
 }
 
+@Composable
+private fun MainBottomNavigation(
+    selectedTab: Int,
+    showInfo: Boolean,
+    onSelectTab: (Int) -> Unit,
+    onSelectInfo: () -> Unit
+) {
+    NavigationBar(modifier = Modifier.height(62.dp), windowInsets = WindowInsets(0.dp), tonalElevation = 2.dp) {
+        NavigationBarItem(selected = !showInfo && selectedTab == 0, onClick = { onSelectTab(0) }, icon = { Text("📰", fontSize = 16.sp) }, label = null)
+        NavigationBarItem(selected = !showInfo && selectedTab == 1, onClick = { onSelectTab(1) }, icon = { Text("📅", fontSize = 16.sp) }, label = null)
+        NavigationBarItem(selected = !showInfo && selectedTab == 2, onClick = { onSelectTab(2) }, icon = { Text("👥", fontSize = 16.sp) }, label = null)
+        NavigationBarItem(selected = showInfo, onClick = onSelectInfo, icon = { Text("ℹ️", fontSize = 16.sp) }, label = null)
+    }
+}
+
+private fun assignmentParagraphs(value: String): List<String> =
+    stripSavedEventTime(value).split(Regex("\\n\\s*\\n")).map { it.trim() }.filter { it.isNotBlank() }
+
+private fun assignmentDisplayTitle(item: AssignmentRecord): String =
+    assignmentParagraphs(item.description).firstOrNull()?.ifBlank { null } ?: item.title
+
+@Composable
+private fun AssignmentCalendarDialog(
+    assignments: List<AssignmentRecord>,
+    selectedDate: String,
+    onSelectDate: (String) -> Unit,
+    onClearDate: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var displayedMonth by remember(selectedDate) {
+        mutableStateOf(runCatching { java.time.YearMonth.from(LocalDate.parse(selectedDate.take(10))) }.getOrElse { java.time.YearMonth.now() })
+    }
+    val assignmentDates = remember(assignments) {
+        assignments.map { it.eventDate.take(10) }.filter { it.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) }.toSet()
+    }
+    val selectedLocalDate = runCatching { LocalDate.parse(selectedDate.take(10)) }.getOrNull()
+    val weekdays = listOf("ஞா", "தி", "செ", "பு", "வி", "வெ", "ச")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("அசைன்மென்ட் காலண்டர்")
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(onClick = { displayedMonth = displayedMonth.minusMonths(1) }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+                    Text(displayedMonth.month.getDisplayName(java.time.format.TextStyle.FULL, Locale("ta", "IN")) + " " + displayedMonth.year, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    TextButton(onClick = { displayedMonth = displayedMonth.plusMonths(1) }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("›", style = MaterialTheme.typography.headlineSmall) }
+                }
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 430.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(modifier = Modifier.fillMaxWidth()) { weekdays.forEach { label -> Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
+                val offset = displayedMonth.atDay(1).dayOfWeek.value % 7
+                repeat(6) { week ->
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        repeat(7) { weekday ->
+                            val dayNumber = week * 7 + weekday - offset + 1
+                            if (dayNumber in 1..displayedMonth.lengthOfMonth()) {
+                                val date = displayedMonth.atDay(dayNumber)
+                                val key = date.toString()
+                                val hasItems = key in assignmentDates
+                                val chosen = selectedLocalDate == date
+                                val bg = when { chosen -> MaterialTheme.colorScheme.primary; hasItems -> MaterialTheme.colorScheme.primaryContainer; else -> MaterialTheme.colorScheme.surface }
+                                val fg = if (chosen) MaterialTheme.colorScheme.onPrimary else if (hasItems) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                Box(modifier = Modifier.weight(1f).aspectRatio(1f).padding(2.dp).clip(RoundedCornerShape(9.dp)).background(bg).clickable { onSelectDate(key) }, contentAlignment = Alignment.Center) {
+                                    Text(dayNumber.toString(), style = MaterialTheme.typography.bodyMedium, color = fg)
+                                    if (hasItems) Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 3.dp).size(4.dp).background(if (chosen) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary, RoundedCornerShape(50.dp)))
+                                }
+                            } else Spacer(modifier = Modifier.weight(1f).aspectRatio(1f))
+                        }
+                    }
+                }
+                Text("நிறமிடப்பட்ட தேதிகளில் அசைன்மென்ட்கள் உள்ளன.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = onClearDate) { Text("அனைத்து தேதிகளும்") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("மூடு") } }
+    )
+}
 private fun dateMatches(value: String, filter: String): Boolean {
     if (filter == "all" || value.isBlank()) return true
     val recordDate = try { LocalDate.parse(value.take(10)) } catch (_: Exception) { return true }
@@ -1306,7 +1467,7 @@ private fun NewsCard(item: NewsRecord, districtName: String, onPreview: () -> Un
     ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp)) {
         Row(modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 9.dp, bottom = 9.dp, end = 5.dp),
             verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(modifier = Modifier.weight(1f).clickable(onClick = onPreview), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(categoryDisplayName(item.category), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     Surface(shape = RoundedCornerShape(6.dp), color = if (item.priority == "high" || item.priority == "urgent" || item.priority == "follow_up") MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
@@ -1320,7 +1481,6 @@ private fun NewsCard(item: NewsRecord, districtName: String, onPreview: () -> Un
                 if (previewBody.isNotBlank()) Text(previewBody, style = MaterialTheme.typography.bodySmall, maxLines = 3, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                IconAction(Icons.Default.Visibility, "முன்னோட்டம்", onPreview, MaterialTheme.colorScheme.primary)
                 IconAction(Icons.Default.Edit, "திருத்து", onEdit)
                 IconAction(Icons.Default.Share, "WhatsApp பகிர்வு", onShare, MaterialTheme.colorScheme.secondary)
                 IconAction(Icons.Default.Delete, "நீக்கு", onDelete, MaterialTheme.colorScheme.error)
@@ -1389,6 +1549,10 @@ private fun StockVideoSearchCard(
 private fun AssignmentCard(item: AssignmentRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onShare: () -> Unit) {
     val day = item.eventDate.split("-").getOrNull(2)?.takeIf { it.isNotBlank() } ?: "—"
     val month = try { LocalDate.parse(item.eventDate).month.name.take(3) } catch (_: Exception) { "" }
+    val paragraphs = assignmentParagraphs(item.description)
+    val canPreview = paragraphs.size >= 2
+    val cardTitle = paragraphs.firstOrNull()?.ifBlank { null } ?: item.title
+    val cardRemainder = paragraphs.drop(1).joinToString("\n\n")
     ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp)) {
         Row(modifier = Modifier.fillMaxWidth().padding(start = 9.dp, top = 9.dp, bottom = 9.dp, end = 5.dp),
             verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1398,11 +1562,14 @@ private fun AssignmentCard(item: AssignmentRecord, districtName: String, onPrevi
                     Text(day, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                modifier = Modifier.weight(1f).then(if (canPreview) Modifier.clickable(onClick = onPreview) else Modifier),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(listOf(categoryDisplayName(item.category), priorityDisplayName(item.priority)).filter { it.isNotBlank() }.joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1)
-                Text(item.title, style = MaterialTheme.typography.titleMedium, maxLines = 3)
-                if (item.description.isNotBlank()) Text(stripSavedEventTime(item.description), style = MaterialTheme.typography.bodySmall, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(cardTitle, style = MaterialTheme.typography.titleMedium)
+                if (cardRemainder.isNotBlank()) Text(cardRemainder, style = MaterialTheme.typography.bodySmall, maxLines = 3, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val locationLine = listOf(districtName, item.location.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
                 if (locationLine.isNotBlank()) Text(locationLine, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 val eventTime = readSavedStartTime(item.description).let { start ->
@@ -1412,7 +1579,7 @@ private fun AssignmentCard(item: AssignmentRecord, districtName: String, onPrevi
                 if (eventTime.isNotBlank()) Text("◷  $eventTime", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                IconAction(Icons.Default.Visibility, "முன்னோட்டம்", onPreview, MaterialTheme.colorScheme.primary)
+                if (canPreview) IconAction(Icons.Default.Visibility, "முன்னோட்டம்", onPreview, MaterialTheme.colorScheme.primary)
                 IconAction(Icons.Default.Edit, "திருத்து", onEdit)
                 IconAction(Icons.Default.Share, "WhatsApp பகிர்வு", onShare, MaterialTheme.colorScheme.secondary)
                 IconAction(Icons.Default.Delete, "நீக்கு", onDelete, MaterialTheme.colorScheme.error)
@@ -1425,7 +1592,7 @@ private fun String.isMeaningfulContactText(): Boolean =
     isNotBlank() && !equals("null", ignoreCase = true) && !equals("undefined", ignoreCase = true)
 
 @Composable
-private fun ContactCard(item: ContactRecord, districtName: String, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun ContactCard(item: ContactRecord, districtName: String, onPreview: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
 
     val context = LocalContext.current
     val initials = item.fullName.trim().split(Regex("\\s+")).take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("")
@@ -1437,7 +1604,7 @@ private fun ContactCard(item: ContactRecord, districtName: String, onEdit: () ->
                     Text(initials.ifBlank { "?" }, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
                 }
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(modifier = Modifier.weight(1f).clickable(onClick = onPreview), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(item.fullName, style = MaterialTheme.typography.titleMedium, maxLines = 2)
                 val roleLine = listOf(item.designation, item.division).filter { it.isMeaningfulContactText() }.joinToString(" · ")
                 if (roleLine.isNotBlank()) Text(roleLine, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
@@ -1880,8 +2047,13 @@ private fun RecordFormScreen(
                                         val sourceDetails = details.trim()
                                         val translatedDetails = if (tab == 0) translateEnglishToTamilIfNeeded(sourceDetails) else sourceDetails
                                         val translatedSummary = if (tab == 0) translateEnglishToTamilIfNeeded(summary.trim()) else summary.trim()
-                                        val resolvedTitle = if (tab == 2) title.trim() else translatedDetails
-                                            .split(Regex("\\n\\s*\\n|\\r?\\n")).firstOrNull()?.trim().orEmpty().take(180)
+                                        val firstParagraph = stripSavedEventTime(translatedDetails)
+                                            .split(Regex("\\n\\s*\\n")).firstOrNull()?.trim().orEmpty()
+                                        val resolvedTitle = when (tab) {
+                                            2 -> title.trim()
+                                            1 -> firstParagraph
+                                            else -> firstParagraph.take(180)
+                                        }
                                         if (resolvedTitle.isBlank()) throw IllegalStateException("செய்தியின் தலைப்பை உருவாக்க முடியவில்லை.")
                                         details = translatedDetails
                                         summary = translatedSummary
