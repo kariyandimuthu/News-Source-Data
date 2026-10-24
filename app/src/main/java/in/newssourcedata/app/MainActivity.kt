@@ -1287,7 +1287,7 @@ private fun MainBottomNavigation(
 }
 
 private fun assignmentParagraphs(value: String): List<String> =
-    stripSavedEventTime(value).split(Regex("\\\\n\\\\s*\\\\n")).map { it.trim() }.filter { it.isNotBlank() }
+    stripSavedEventTime(value).split(Regex("\\n\\s*\\n")).map { it.trim() }.filter { it.isNotBlank() }
 
 private fun assignmentDisplayTitle(item: AssignmentRecord): String =
     assignmentParagraphs(item.description).firstOrNull()?.ifBlank { null } ?: item.title
@@ -1304,7 +1304,7 @@ private fun AssignmentCalendarDialog(
         mutableStateOf(runCatching { java.time.YearMonth.from(LocalDate.parse(selectedDate.take(10))) }.getOrElse { java.time.YearMonth.now() })
     }
     val assignmentDates = remember(assignments) {
-        assignments.map { it.eventDate.take(10) }.filter { it.matches(Regex("\\\\d{4}-\\\\d{2}-\\\\d{2}")) }.toSet()
+        assignments.map { it.eventDate.take(10) }.filter { it.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) }.toSet()
     }
     val selectedLocalDate = runCatching { LocalDate.parse(selectedDate.take(10)) }.getOrNull()
     val weekdays = listOf("ஞா", "தி", "செ", "பு", "வி", "வெ", "ச")
@@ -2047,7 +2047,7 @@ private fun RecordFormScreen(
                                         val translatedDetails = if (tab == 0) translateEnglishToTamilIfNeeded(sourceDetails) else sourceDetails
                                         val translatedSummary = if (tab == 0) translateEnglishToTamilIfNeeded(summary.trim()) else summary.trim()
                                         val firstParagraph = stripSavedEventTime(translatedDetails)
-                                            .split(Regex("\\n\\s*\\n|\\r?\\n")).firstOrNull()?.trim().orEmpty()
+                                            .split(Regex("\\n\\s*\\n")).firstOrNull()?.trim().orEmpty()
                                         val resolvedTitle = when (tab) {
                                             2 -> title.trim()
                                             1 -> firstParagraph
