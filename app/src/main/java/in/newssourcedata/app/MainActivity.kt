@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Chat
